@@ -18,7 +18,8 @@ staging/**/*.parquet
 *.log
 logs/
 
-# ---- Notebook ----
+# ---- 测试 / Notebook ----
+.pytest_cache/
 .ipynb_checkpoints/
 
 # ---- IDE / OS ----
