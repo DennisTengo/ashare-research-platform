@@ -6,8 +6,8 @@ data:
   staging: staging
 
 source:
-  primary: akshare
-  validator: baostock
+  primary: baostock
+  fallback: akshare
   batch_size: 100          # 每批股票数
   sleep_seconds: 2         # 批间休眠，避免限流
   max_retries: 3

@@ -26,10 +26,10 @@ class DataConfig(BaseModel):
 
 
 class SourceConfig(BaseModel):
-    """数据源与抓取节流参数。"""
+    """数据源。primary 为主源，失败时由调用方降级到 fallback。"""
 
-    primary: str = "akshare"
-    validator: str = "baostock"
+    primary: str = "baostock"
+    fallback: str = "akshare"
     batch_size: int = Field(default=100, gt=0)
     sleep_seconds: float = Field(default=2.0, ge=0)
     max_retries: int = Field(default=3, ge=0)
