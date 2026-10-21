@@ -1,0 +1,32 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# ---- 数据（不入库）----
+data/*
+!data/.gitkeep
+*.duckdb
+*.duckdb.wal
+*.parquet
+staging/**/*.parquet
+
+# ---- 日志 ----
+*.log
+logs/
+
+# ---- Notebook ----
+.ipynb_checkpoints/
+
+# ---- IDE / OS ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---- 本地配置 ----
+config/config.yaml

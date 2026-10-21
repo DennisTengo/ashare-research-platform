@@ -1,0 +1,26 @@
+# 复制为 config.yaml 后按需修改。config.yaml 已在 .gitignore 中。
+
+data:
+  root: data
+  database: data/ashare.duckdb
+  staging: staging
+
+source:
+  primary: akshare
+  validator: baostock
+  batch_size: 100          # 每批股票数
+  sleep_seconds: 2         # 批间休眠，避免限流
+  max_retries: 3
+  timeout_seconds: 30
+
+universe:
+  default: all_a
+  exclude_st: true
+  exclude_new_days: 60     # 剔除上市不足 N 个交易日的新股
+
+backtest:
+  commission_rate: 0.0003  # 佣金，双边
+  stamp_tax: 0.001         # 印花税，卖出
+  slippage: 0.001          # 滑点
+  benchmark: 000300.SH
+  trade_price: next_open   # 信号 T 日，T+1 开盘成交
