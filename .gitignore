@@ -32,3 +32,4 @@ Thumbs.db
 
 # ---- 本地配置 ----
 config/config.yaml
+.tmp/
