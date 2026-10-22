@@ -133,6 +133,52 @@ def long_short(
     }
 
 
+def assign_double_groups(
+    panel: pd.DataFrame,
+    n_groups: int = 5,
+    n_layers: int = 3,
+    factor_col: str = "factor_value",
+    layer_col: str = "layer_value",
+) -> pd.DataFrame:
+    """双重分组：先按 layer 分 N 层，再在每层内部按 factor 分 M 组。
+
+    用途是控制混淆变量。例如先按波动率分三层，再在各层内部按动量分五组；
+    如果各层内部动量都失效，就说明之前看到的 U 型是波动率造成的，不是动量。
+
+    每个交易日独立分层分组，筛选条件：单日股票数需 ≥ n_layers * n_groups * 5。
+    """
+    out = panel.dropna(subset=[factor_col, layer_col]).copy()
+    parts = []
+    for _, day in out.groupby("trade_date", sort=False):
+        if len(day) < n_layers * n_groups * 5:
+            continue
+        day = day.copy()
+        day["layer"] = (
+            np.ceil(day[layer_col].rank(pct=True, method="first") * n_layers)
+            .clip(1, n_layers)
+            .astype("int64")
+        )
+        day["group"] = day.groupby("layer")[factor_col].transform(
+            lambda s: np.ceil(s.rank(pct=True, method="first") * n_groups)
+            .clip(1, n_groups)
+            .astype("int64")
+        )
+        parts.append(day)
+    if not parts:
+        return out.iloc[0:0].assign(layer=[], group=[])
+    return pd.concat(parts, ignore_index=True)
+
+
+def layer_group_returns(panel: pd.DataFrame) -> pd.DataFrame:
+    """每层内各组的平均收益，返回 (layer, group) 两级的宽表。"""
+    return (
+        panel.dropna(subset=["fwd_return"])
+        .groupby(["layer", "trade_date", "group"])["fwd_return"]
+        .mean()
+        .unstack("group")
+    )
+
+
 def is_monotonic(daily: pd.DataFrame, n_groups: int = 5, periods_per_year: int = TRADING_DAYS_PER_YEAR) -> bool:
     """判断各组年化收益是否严格单调。用于快速判断因子方向是否稳定。"""
     stats = summarize(daily, n_groups, periods_per_year)

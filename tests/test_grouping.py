@@ -12,6 +12,7 @@ import pytest
 from analysis.grouping import (
     add_forward_return,
     add_listed_days,
+    assign_double_groups,
     assign_groups,
     daily_group_returns,
     is_monotonic,
@@ -91,6 +92,38 @@ def test_assign_groups_ignores_missing_factor_values():
     out = assign_groups(panel, n_groups=5)
     assert len(out) == 25
     assert out["group"].notna().all()
+
+
+def test_assign_double_groups_layers_and_groups():
+    """300 只股票，3 层 × 5 组，每组 20 只。"""
+    n = 300
+    panel = pd.DataFrame(
+        {
+            "trade_date": [pd.Timestamp("2024-01-02")] * n,
+            "factor_value": np.arange(n, dtype=float),
+            "layer_value": np.arange(n, dtype=float),
+        }
+    )
+    out = assign_double_groups(panel, n_groups=5, n_layers=3)
+    assert len(out) == n
+    assert out["layer"].value_counts().sort_index().tolist() == [100, 100, 100]
+    counts = out.groupby(["layer", "group"]).size()
+    assert (counts == 20).all()
+    # 层内分组应基于因子值：层内因子最大的落在第 5 组
+    bottom = out[out["layer"] == 1]
+    assert bottom.loc[bottom["factor_value"].idxmax(), "group"] == 5
+
+
+def test_assign_double_groups_skips_small_days():
+    panel = pd.DataFrame(
+        {
+            "trade_date": [pd.Timestamp("2024-01-02")] * 50,
+            "factor_value": np.arange(50, dtype=float),
+            "layer_value": np.arange(50, dtype=float),
+        }
+    )
+    # 需要至少 3*5*5=75 只
+    assert assign_double_groups(panel, n_groups=5, n_layers=3).empty
 
 
 def test_daily_group_returns_averages_within_group():
