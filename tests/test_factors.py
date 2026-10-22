@@ -124,6 +124,21 @@ def test_recompute_is_idempotent(conn):
     assert total == 1
 
 
+def test_partial_compute_preserves_history(conn):
+    """只算一个区间时，区间外的历史因子值不能被删掉。"""
+    _insert_series(conn, "000001.SZ", [10 + i for i in range(40)])
+    compute_all(conn, ["momentum_20d"])
+    before = conn.execute("SELECT count(*) FROM fact_factor").fetchone()[0]
+    assert before > 5
+
+    # 只重算后段：早于 start 的因子值应当保留
+    compute_all(conn, ["momentum_20d"], start="2024-01-25")
+    early = conn.execute(
+        "SELECT count(*) FROM fact_factor WHERE trade_date < '2024-01-25'"
+    ).fetchone()[0]
+    assert early > 0, "区间外的历史因子值被误删"
+
+
 def test_adjusted_price_is_used_not_raw(conn):
     """复权因子非 1 时，因子应基于复权价计算。"""
     # 原始价恒定 10，因子从 1 涨到 2：复权价实际翻倍，动量应为 +100%

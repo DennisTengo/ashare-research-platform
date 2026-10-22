@@ -32,7 +32,13 @@ def main() -> int:
     cfg = load_config()
     with session(cfg.database_path) as conn:
         results = run_all(conn, max_rows=args.max_rows)
-        print(format_report(results, sample=args.sample))
+        print(
+            format_report(
+                results,
+                sample=args.sample,
+                truncated=args.max_rows < 100_000,
+            )
+        )
         if args.write:
             count = save_findings(conn, results)
             print(f"\n已写入 meta_dq_result：{count} 条")

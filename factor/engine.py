@@ -44,6 +44,27 @@ def load_bars(
     return conn.execute(sql, params).df()
 
 
+def _clear_range(
+    conn: duckdb.DuckDBPyConnection,
+    name: str,
+    start: str | None,
+    end: str | None,
+) -> None:
+    """删除指定因子的旧值，范围与本次计算范围保持一致。
+
+    如果传了 start/end 却按因子名删全表，区间外的历史值会被一并清掉，
+    而且不会报错——属于“看起来正常但数据没了”的缺陷。
+    """
+    if start or end:
+        conn.execute(
+            "DELETE FROM fact_factor WHERE factor_name = ? "
+            "AND trade_date >= ? AND trade_date <= ?",
+            [name, start or "1900-01-01", end or "2999-12-31"],
+        )
+    else:
+        conn.execute("DELETE FROM fact_factor WHERE factor_name = ?", [name])
+
+
 def compute_all(
     conn: duckdb.DuckDBPyConnection,
     factor_names: list[str] | None = None,
@@ -89,12 +110,12 @@ def compute_all(
     # 全部股票历史都不足时，结果是空表，也要把旧数据清掉并返回 0
     if result.empty:
         for name in names:
-            conn.execute("DELETE FROM fact_factor WHERE factor_name = ?", [name])
+            _clear_range(conn, name, start, end)
         return {name: 0 for name in names}
 
     counts: dict[str, int] = {}
     for name in names:
-        conn.execute("DELETE FROM fact_factor WHERE factor_name = ?", [name])
+        _clear_range(conn, name, start, end)
         sub = result[result["factor_name"] == name][
             ["factor_name", "trade_date", "code", "value"]
         ]

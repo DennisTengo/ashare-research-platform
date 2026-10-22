@@ -193,6 +193,19 @@ def check_date_gap(
     以该股票自身的首末交易日为区间，用日历算应有天数，与实际行数相减。
     缺失天数超过阈值才报——少量缺失可能是停牌或数据源偶发缺失。
     """
+    if conn.execute("SELECT count(*) FROM dim_calendar").fetchone()[0] == 0:
+        # 日历为空时 expected 子查询无结果，检查会静默返回零条，
+        # 让人误以为数据完整。这里必须报出来。
+        return [
+            Finding(
+                "date_gap",
+                "error",
+                None,
+                None,
+                "交易日历为空，断档检查无法执行：先运行 sync_basic.py",
+            )
+        ]
+
     rows = conn.execute(
         f"""
         WITH span AS (

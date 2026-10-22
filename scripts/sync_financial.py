@@ -41,6 +41,7 @@ def main() -> int:
     parser.add_argument("--end-year", type=int, default=dt.date.today().year)
     parser.add_argument("--sleep", type=float, default=0.3, help="每只股票之间的间隔秒数")
     parser.add_argument("--progress-every", type=int, default=10)
+    parser.add_argument("--refresh", action="store_true", help="忽略已有记录，强制重采")
     args = parser.parse_args()
 
     years = list(range(args.start_year, args.end_year + 1))
@@ -66,7 +67,9 @@ def main() -> int:
         failures: list[tuple[str, str]] = []
 
         for index, symbol in enumerate(symbols, start=1):
-            existing = existing_periods(conn, symbol)
+            # 默认按报告期跳过已采季度；--refresh 时忽略本地记录，
+            # 因为年报追溯调整会让同一报告期的数字变化，不重采会留着旧值。
+            existing = set() if args.refresh else existing_periods(conn, symbol)
             todo = [
                 (y, q)
                 for y in years

@@ -169,6 +169,15 @@ def test_date_gap_passes_complete_series(conn):
     assert check_date_gap(conn, min_missing=5) == []
 
 
+def test_date_gap_reports_empty_calendar(conn):
+    """日历为空时必须报错，而不是静默返回空结果。"""
+    _price(conn, "000001.SZ", "2024-01-02", 10, 10, 10, 10)
+    findings = check_date_gap(conn)
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+    assert "日历为空" in findings[0].detail
+
+
 def test_zero_volume_with_price_move(conn):
     _price(conn, "000001.SZ", "2024-01-02", 10, 10, 10, 10)
     _factor(conn, "000001.SZ", "2024-01-02", 1.0)

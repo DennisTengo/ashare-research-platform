@@ -64,8 +64,14 @@ def save_findings(conn: duckdb.DuckDBPyConnection, results: dict[str, list[Findi
     return len(records)
 
 
-def format_report(results: dict[str, list[Finding]], sample: int = 3) -> str:
-    """生成可读的文本报告。"""
+def format_report(
+    results: dict[str, list[Finding]], sample: int = 3, truncated: bool = False
+) -> str:
+    """生成可读的文本报告。
+
+    truncated 为 True 时提示条数可能被截断，避免把「最多返回 500 条」
+    误读成真实总数。
+    """
     lines = []
     for item in summarize(results):
         flag = "错误" if item["fatal"] else "提示"
@@ -74,5 +80,6 @@ def format_report(results: dict[str, list[Finding]], sample: int = 3) -> str:
         for f in findings:
             lines.append(f"    {f.code} {f.trade_date} — {f.detail}")
         if item["count"] > sample:
-            lines.append(f"    …… 另有 {item['count'] - sample} 条")
+            suffix = "（已达单规则上限，实际可能更多）" if truncated and item["count"] >= 500 else ""
+            lines.append(f"    …… 另有 {item['count'] - sample} 条{suffix}")
     return "\n".join(lines) if lines else "未发现问题"
