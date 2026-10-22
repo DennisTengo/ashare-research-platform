@@ -15,6 +15,8 @@
 | 分组回测 | 完成 | 五分组、多空组合、年化/夏普/胜率/单调性 |
 | 双重分组 | 完成 | 控制一个变量后检验因子是否还成立 |
 | IC 分析 | 完成 | 秩相关、ICIR、胜率、t 值、衰减曲线 |
+| 组合回测 | 完成 | 换手率、交易成本、净值、回撤、卡玛 |
+| 回测存档 | 完成 | `meta_backtest` 表，参数与指标存 JSON |
 | 财务数据 | 未做 | 表已建，数据未采 |
 | 组合回测（含成本） | 未做 | — |
 | 界面 | 未做 | 按计划最后做 |
@@ -22,6 +24,9 @@
 ## 快速开始
 
 ```bash
+# 0. 初始化表结构（幂等，新增表后重跑一次）
+python scripts/init_db.py
+
 # 1. 同步基础数据（交易日历、股票列表）
 python scripts/sync_basic.py
 
@@ -40,6 +45,9 @@ python scripts/run_group_backtest.py --factor momentum_20d --horizon 20 --groups
 
 # 6. 控制变量后的因子有效性
 python scripts/run_neutralized_backtest.py --factor momentum_20d --layer volatility_20d
+
+# 7. 组合回测（含交易成本，自动存档）
+python scripts/run_backtest.py --factor momentum_20d
 ```
 
 ## 现在能回答的问题
@@ -66,7 +74,7 @@ python scripts/run_neutralized_backtest.py --factor momentum_20d --layer volatil
 | `collector/` | 行情采集、双数据源适配、批量执行器 |
 | `quality/` | 数据质量规则与报告 |
 | `factor/` | 因子协议、计算引擎、因子实现 |
-| `analysis/` | 分组、多空、中性化 |
+| `analysis/` | 分组、多空、IC、组合回测、结果存档 |
 | `warehouse/` | 表结构与幂等写入 |
 | `scripts/` | 六个可执行入口 |
 | `common/` | 配置、日志、数据库连接、代码标准化 |
