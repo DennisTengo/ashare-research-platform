@@ -36,6 +36,46 @@ def _safe_to_symbol(code: str) -> str | None:
         return None
 
 
+def _normalize_date(value):
+    """上市日期格式不统一：上交所/北交所给 date，深交所给字符串，统一成 date。"""
+    ts = pd.to_datetime(value, errors="coerce")
+    return None if pd.isna(ts) else ts.date()
+
+
+def fetch_list_dates() -> dict[str, object]:
+    """从三个交易所名单拉取上市日，返回 {代码: 上市日}。
+
+    缺上市日会让「剔除次新股」这类股票池条件无法实现，
+    也无法计算上市天数，因此单独补齐。接口失败不阻断主流程。
+    """
+    import akshare as ak
+
+    sources = (
+        ("stock_info_sh_name_code", "证券代码", "上市日期", {"symbol": "主板A股"}),
+        # 科创板在上交所接口里是单独的 symbol，不传参数就漏掉 618 只
+        ("stock_info_sh_name_code", "证券代码", "上市日期", {"symbol": "科创板"}),
+        ("stock_info_sz_name_code", "A股代码", "A股上市日期", {}),
+        ("stock_info_bj_name_code", "证券代码", "上市日期", {}),
+    )
+    mapping: dict[str, object] = {}
+    for fn_name, code_col, date_col, kwargs in sources:
+        try:
+            df = getattr(ak, fn_name)(**kwargs)
+        except Exception as exc:  # noqa: BLE001 - 单一交易所失败不影响其余
+            log.warning("{}{} 获取失败: {}", fn_name, kwargs or "", exc)
+            continue
+        if code_col not in df.columns or date_col not in df.columns:
+            log.warning("{} 字段变化: {}", fn_name, list(df.columns))
+            continue
+        for raw_code, raw_date in zip(df[code_col], df[date_col]):
+            symbol = _safe_to_symbol(str(raw_code).zfill(6))
+            day = _normalize_date(raw_date)
+            if symbol and day:
+                mapping[symbol] = day
+    log.info("上市日获取完成: {} 条", len(mapping))
+    return mapping
+
+
 def fetch_stock_list() -> pd.DataFrame:
     """拉取全部在市 A 股，输出 dim_stock 可直接写入的结构。"""
     import akshare as ak
@@ -63,6 +103,13 @@ def fetch_stock_list() -> pd.DataFrame:
     df["board"] = df["code"].map(infer_board)
     df["is_st"] = df["name"].str.contains("ST", case=False, na=False)
     df = df.drop(columns=["raw_code"]).drop_duplicates(subset=["code"])
+
+    # 上市日：缺失会导致「剔除次新股」无法实现，也拿不到上市天数
+    dates = fetch_list_dates()
+    df["list_date"] = df["code"].map(dates)
+    missing = int(df["list_date"].isna().sum())
+    if missing:
+        log.warning("{} 只股票未拿到上市日", missing)
 
     return df
 

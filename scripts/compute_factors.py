@@ -9,12 +9,14 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import factor.factors  # noqa: F401  触发注册
+from collector.runner import SyncResult, write_job_log
 from common.config import load_config
 from common.db import session
 from factor.base import all_factors
@@ -36,8 +38,15 @@ def main() -> int:
             return 1
 
     cfg = load_config()
+    started = dt.datetime.now()
     with session(cfg.database_path) as conn:
         counts = compute_all(conn, args.factors, args.start, args.end)
+        result = SyncResult(
+            total=len(counts),
+            succeeded=sum(1 for n in counts.values() if n > 0),
+            rows=sum(counts.values()),
+        )
+        write_job_log(conn, "compute_factors", started, result)
         print("\n---- 结果 ----")
         for name, n in counts.items():
             print(f"  {name}: {n} 行")

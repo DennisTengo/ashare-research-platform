@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from collector import financial
 from collector.financial import quarter_end
+from collector.runner import SyncResult, write_job_log
 from collector.sources import baostock_logout
 from common.config import load_config
 from common.db import session
@@ -63,8 +64,7 @@ def main() -> int:
 
         print(f"待处理 {len(symbols)} 只股票，年度范围 {args.start_year}~{args.end_year}")
 
-        succeeded = failed = skipped = total_rows = 0
-        failures: list[tuple[str, str]] = []
+        result = SyncResult(total=len(symbols))
 
         for index, symbol in enumerate(symbols, start=1):
             # 默认按报告期跳过已采季度；--refresh 时忽略本地记录，
@@ -77,7 +77,7 @@ def main() -> int:
                 if quarter_end(y, q) not in existing
             ]
             if not todo:
-                skipped += 1
+                result.skipped += 1
             else:
                 try:
                     records = []
@@ -85,22 +85,23 @@ def main() -> int:
                         record = financial.fetch_quarter(symbol, year, quarter)
                         if record:
                             records.append(record)
-                    total_rows += financial.save(conn, records)
-                    succeeded += 1
+                    result.rows += financial.save(conn, records)
+                    result.succeeded += 1
                 except Exception as exc:  # noqa: BLE001 - 单只失败不影响整批
-                    failed += 1
-                    failures.append((symbol, str(exc)))
+                    result.failed += 1
+                    result.failures.append((symbol, str(exc)))
                     log.warning("{} 财务数据采集失败: {}", symbol, exc)
 
             if args.progress_every and index % args.progress_every == 0:
                 print(
-                    f"  进度 {index}/{len(symbols)} ｜ 成功 {succeeded} "
-                    f"跳过 {skipped} 失败 {failed} ｜ 写入 {total_rows} 行"
+                    f"  进度 {index}/{len(symbols)} ｜ 成功 {result.succeeded} "
+                    f"跳过 {result.skipped} 失败 {result.failed} ｜ 写入 {result.rows} 行"
                 )
             if args.sleep:
                 time.sleep(args.sleep)
 
         baostock_logout()
+        write_job_log(conn, "sync_financial", started, result)
         rows_in_db = conn.execute("SELECT count(*) FROM fact_financial").fetchone()[0]
         covered = conn.execute(
             "SELECT count(DISTINCT code) FROM fact_financial"
@@ -108,15 +109,12 @@ def main() -> int:
 
     elapsed = (dt.datetime.now() - started).total_seconds()
     print("\n---- 结果 ----")
-    print(
-        f"总数 {len(symbols)}，成功 {succeeded}，跳过 {skipped}，失败 {failed}，"
-        f"写入 {total_rows} 行"
-    )
+    print(result.summary())
     print(f"fact_financial: {rows_in_db} 行，覆盖 {covered} 只股票")
     print(f"耗时 {elapsed/60:.1f} 分钟")
-    for symbol, message in failures[:5]:
+    for symbol, message in result.failures[:5]:
         print(f"  失败: {symbol} — {message}")
-    return 0 if failed == 0 else 1
+    return 0 if result.failed == 0 else 1
 
 
 if __name__ == "__main__":

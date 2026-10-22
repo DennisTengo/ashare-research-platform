@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import sys
 from pathlib import Path
 
@@ -15,6 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from collector.calendar import sync_trade_calendar
+from collector.runner import SyncResult, write_job_log
 from collector.stock_list import sync_stock_list
 from common.calendar import count_trade_dates, latest_trade_date
 from common.config import load_config
@@ -28,8 +30,15 @@ def main() -> None:
 
     with session(cfg.database_path) as conn:
         init_schema(conn)
+        started = dt.datetime.now()
         sync_trade_calendar(conn)
-        sync_stock_list(conn)
+        stocks = sync_stock_list(conn)
+        write_job_log(
+            conn,
+            "sync_basic",
+            started,
+            SyncResult(total=stocks, succeeded=stocks if stocks else 0, rows=stocks),
+        )
 
         print("---- 结果 ----")
         print(f"交易日总数: {count_trade_dates(conn)}")
