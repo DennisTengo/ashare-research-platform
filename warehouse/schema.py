@@ -63,6 +63,11 @@ CREATE TABLE IF NOT EXISTS fact_financial (
     net_profit    DOUBLE,
     total_assets  DOUBLE,
     total_equity  DOUBLE,
+    roe           DOUBLE,
+    eps           DOUBLE,
+    gross_margin  DOUBLE,
+    net_margin    DOUBLE,
+    extra         JSON,
     PRIMARY KEY (code, report_period, announce_date)
 )
 """
