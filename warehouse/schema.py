@@ -102,6 +102,21 @@ CREATE TABLE IF NOT EXISTS meta_dq_result (
 )
 """
 
+# 回测结果存档。
+# params / metrics 用 JSON 而不是拆成列：回测参数和指标会不断新增，
+# 拆列意味着每加一个参数就要改表结构，历史记录也会失去可比性。
+DDL_BACKTEST = """
+CREATE TABLE IF NOT EXISTS meta_backtest (
+    id          BIGINT PRIMARY KEY,
+    run_at      TIMESTAMP DEFAULT current_timestamp,
+    git_commit  VARCHAR,
+    factor      VARCHAR,
+    label       VARCHAR,
+    params      JSON,
+    metrics     JSON
+)
+"""
+
 ALL_DDL = [
     DDL_CALENDAR,
     DDL_STOCK,
@@ -111,6 +126,7 @@ ALL_DDL = [
     DDL_FACTOR,
     DDL_JOB_LOG,
     DDL_DQ_RESULT,
+    DDL_BACKTEST,
 ]
 
 

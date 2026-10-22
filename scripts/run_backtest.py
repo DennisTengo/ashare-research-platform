@@ -22,6 +22,7 @@ from analysis.backtest import (
     performance,
     portfolio_returns,
 )
+from analysis.record import record_backtest
 from analysis.grouping import (
     TRADING_DAYS_PER_YEAR,
     add_forward_return,
@@ -59,6 +60,7 @@ def main() -> int:
     parser.add_argument("--min-listed", type=int, default=60)
     parser.add_argument("--cost-buy", type=float, default=DEFAULT_COST_BUY)
     parser.add_argument("--cost-sell", type=float, default=DEFAULT_COST_SELL)
+    parser.add_argument("--no-save", action="store_true", help="不写入 meta_backtest")
     parser.add_argument("--start")
     parser.add_argument("--end")
     args = parser.parse_args()
@@ -94,27 +96,54 @@ def main() -> int:
     )
     print(f"成本：买入 {args.cost_buy:.2%}，卖出 {args.cost_sell:.2%}")
 
+    header = (
+        f"{'组合':<12}{'年化收益':>10}{'年化波动':>10}{'夏普':>8}"
+        f"{'最大回撤':>10}{'卡玛':>8}{'平均换手':>10}"
+    )
+    records: list[dict] = []
+
+    def _emit(perf: dict, turnover: float) -> str:
+        records.append({**perf, "turnover": turnover})
+        return _row(perf, turnover)
+
     # 基准：全部股票等权，不扣成本
     bench = portfolio_returns(panel, None, 0.0, 0.0)
     bench_perf = performance(bench["net"], ppy, label="基准(等权)")
-
-    header = f"{'组合':<12}{'年化收益':>10}{'年化波动':>10}{'夏普':>8}{'最大回撤':>10}{'卡玛':>8}{'平均换手':>10}"
     print("\n" + header)
-    print(_row(bench_perf, bench["turnover"].mean()))
+    print(_emit(bench_perf, bench["turnover"].mean()))
 
     for g in range(1, args.groups + 1):
         result = portfolio_returns(panel, g, args.cost_buy, args.cost_sell)
         perf = performance(result["net"], ppy, label=f"G{g}")
-        print(_row(perf, result["turnover"].mean()))
+        print(_emit(perf, result["turnover"].mean()))
 
     ls = long_short_returns(panel, args.groups, args.cost_buy, args.cost_sell)
     gross_perf = performance(ls["gross"], ppy, label="多空(毛)")
     net_perf = performance(ls["net"], ppy, label="多空(净)")
     print("\n多空组合（做多最高组、做空最低组）")
-    print(_row(gross_perf, ls["turnover"].mean()))
-    print(_row(net_perf, ls["turnover"].mean()))
+    print(_emit(gross_perf, ls["turnover"].mean()))
+    print(_emit(net_perf, ls["turnover"].mean()))
     print(f"年化成本拖累：{gross_perf['annual_return'] - net_perf['annual_return']:.2%}")
     print("\n注：空头在 A 股受融券限制，多空仅作因子有效性的理论度量。")
+
+    if not args.no_save:
+        with session(cfg.database_path) as save_conn:
+            record_id = record_backtest(
+                save_conn,
+                args.factor,
+                "默认参数",
+                {
+                    "horizon": args.horizon,
+                    "groups": args.groups,
+                    "cost_buy": args.cost_buy,
+                    "cost_sell": args.cost_sell,
+                    "min_listed": args.min_listed,
+                    "start": args.start,
+                    "end": args.end,
+                },
+                records,
+            )
+        print(f"已存档：record id {record_id}")
     return 0
 
 
