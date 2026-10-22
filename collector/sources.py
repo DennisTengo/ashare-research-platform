@@ -35,6 +35,14 @@ _BAOSTOCK_ADJUST = {"": "3", "hfq": "1", "qfq": "2"}
 
 _logged_in = False
 
+# 长批量任务中 baostock 的连接会中途中断，错误信息没有错误码可判，只能按文案识别。
+_NETWORK_ERROR_HINTS = ("网络", "接收", "连接", "超时", "timeout", "recv", "connect", "reset", "broken")
+
+
+def _looks_like_network_error(message: str) -> bool:
+    lowered = message.lower()
+    return any(hint in lowered for hint in _NETWORK_ERROR_HINTS)
+
 
 def _ensure_baostock_login() -> None:
     global _logged_in
@@ -59,6 +67,23 @@ def baostock_logout() -> None:
     bs.logout()
     _logged_in = False
     log.debug("baostock 已登出")
+
+
+def _force_relogin() -> None:
+    """连接异常后重建会话。
+
+    必须先把标志位置回 False，否则 _ensure_baostock_login 会直接返回，
+    导致后续每次查询都重复同一个失败。
+    """
+    global _logged_in
+    _logged_in = False
+    try:
+        import baostock as bs
+
+        bs.logout()
+    except Exception:  # noqa: BLE001 - 登出失败不影响重连
+        pass
+    _ensure_baostock_login()
 
 
 def _empty() -> pd.DataFrame:
@@ -90,7 +115,9 @@ def fetch_akshare(code: str, start: str, end: str, adjust: str) -> pd.DataFrame:
     return out
 
 
-def fetch_baostock(symbol: str, start: str, end: str, adjust: str) -> pd.DataFrame:
+def fetch_baostock(
+    symbol: str, start: str, end: str, adjust: str, retry: bool = True
+) -> pd.DataFrame:
     _ensure_baostock_login()
     import baostock as bs
 
@@ -100,20 +127,30 @@ def fetch_baostock(symbol: str, start: str, end: str, adjust: str) -> pd.DataFra
     if flag is None:
         raise ValueError(f"baostock 不支持的复权口径: {adjust!r}")
 
-    rs = bs.query_history_k_data_plus(
-        bs_code,
-        _BAOSTOCK_FIELDS,
-        start_date=start,
-        end_date=end,
-        frequency="d",
-        adjustflag=flag,
-    )
-    if rs.error_code != "0":
-        raise RuntimeError(f"baostock 查询失败({bs_code}): {rs.error_msg}")
+    try:
+        rs = bs.query_history_k_data_plus(
+            bs_code,
+            _BAOSTOCK_FIELDS,
+            start_date=start,
+            end_date=end,
+            frequency="d",
+            adjustflag=flag,
+        )
+        if rs.error_code != "0":
+            raise RuntimeError(f"baostock 查询失败({bs_code}): {rs.error_msg}")
 
-    rows = []
-    while rs.next():
-        rows.append(rs.get_row_data())
+        rows = []
+        while rs.next():
+            rows.append(rs.get_row_data())
+    except Exception as exc:  # noqa: BLE001 - 统一在此判定是否为连接问题
+        # 会话中断时 error_msg 是「网络接收错误」这类文案，重建会话后重试一次即可恢复。
+        # 只重试一次，避免真故障时无限递归。
+        if retry and _looks_like_network_error(str(exc)):
+            log.warning("baostock 会话异常（{}），重建后重试 {}", exc, symbol)
+            _force_relogin()
+            return fetch_baostock(symbol, start, end, adjust, retry=False)
+        raise
+
     if not rows:
         return _empty()
 
