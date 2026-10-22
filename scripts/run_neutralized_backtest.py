@@ -1,9 +1,5 @@
 """双重分组验证：控制一个变量后，因子是否还有效。
 
-典型用途：怀疑动量分层的 U 型是波动率混淆时，先按波动率分三层，
-再看每层内部动量的多空收益。如果三层内部多空都接近零，就可以确认
-之前的形态由波动率驱动，而不是动量。
-
 用法：
     python scripts/run_neutralized_backtest.py
     python scripts/run_neutralized_backtest.py --factor momentum_20d --layer volatility_20d
@@ -17,33 +13,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import pandas as pd
-
 from analysis.grouping import (
     TRADING_DAYS_PER_YEAR,
-    add_forward_return,
-    add_listed_days,
     assign_double_groups,
     is_monotonic,
     layer_group_returns,
     long_short,
-    rebalance_dates,
     summarize,
 )
+from analysis.pipeline import build_panel
 from common.config import load_config
 from common.db import session
-from factor.engine import load_bars
-
-
-def load_factor(conn, name: str, as_col: str) -> pd.DataFrame:
-    df = conn.execute(
-        "SELECT code, trade_date, value AS {} FROM fact_factor WHERE factor_name = ?".format(
-            as_col
-        ),
-        [name],
-    ).df()
-    df["trade_date"] = pd.to_datetime(df["trade_date"])
-    return df
 
 
 def main() -> int:
@@ -60,30 +40,22 @@ def main() -> int:
 
     cfg = load_config()
     with session(cfg.database_path) as conn:
-        bars = load_bars(conn, args.start, args.end)
-        if bars.empty:
-            print("没有行情数据")
-            return 1
-        bars = add_forward_return(bars, args.horizon)
-        bars = add_listed_days(bars)
-        bars["trade_date"] = pd.to_datetime(bars["trade_date"])
-
-        fac = load_factor(conn, args.factor, "factor_value")
-        lay = load_factor(conn, args.layer, "layer_value")
-        if fac.empty or lay.empty:
-            print("因子数据缺失，先运行 compute_factors.py")
-            return 1
-
-        panel = (
-            bars.merge(fac, on=["code", "trade_date"], how="inner")
-            .merge(lay, on=["code", "trade_date"], how="inner")
+        panel = build_panel(
+            conn,
+            args.factor,
+            horizon=args.horizon,
+            groups=None,
+            min_listed=args.min_listed,
+            start=args.start,
+            end=args.end,
+            extra_factors={"layer_value": args.layer},
         )
-        panel = panel[panel["listed_days"] >= args.min_listed]
-        dates = rebalance_dates(panel["trade_date"], args.horizon)
-        panel = panel[panel["trade_date"].isin(dates)]
-        panel = assign_double_groups(panel, args.groups, args.layers)
-        usable = panel.dropna(subset=["fwd_return"])
+        if panel.empty:
+            print("没有可用样本，检查两个因子是否都已计算")
+            return 1
 
+    panel = assign_double_groups(panel, args.groups, args.layers)
+    usable = panel.dropna(subset=["fwd_return"])
     if usable.empty:
         print("没有可用样本")
         return 1
@@ -137,9 +109,7 @@ def main() -> int:
             f"{('是' if row['monotonic'] else '否'):>6}"
         )
 
-    positives = sum(
-        1 for r in summary_rows if (r["spread_annual"] or 0) > 0.02
-    )
+    positives = sum(1 for r in summary_rows if (r["spread_annual"] or 0) > 0.02)
     if positives == 0:
         print("\n结论：控制该变量后因子在各层均无显著正收益，原形态很可能是控制变量驱动的。")
     elif positives == len(summary_rows):

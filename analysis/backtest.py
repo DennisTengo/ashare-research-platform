@@ -17,11 +17,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-TRADING_DAYS_PER_YEAR = 252
-
-# A 股默认成本参数
-DEFAULT_COST_BUY = 0.0013
-DEFAULT_COST_SELL = 0.0023
+from common.constants import DEFAULT_COST_BUY, DEFAULT_COST_SELL, TRADING_DAYS_PER_YEAR
 
 
 def portfolio_returns(
@@ -92,6 +88,13 @@ def max_drawdown(nav: pd.Series) -> float:
         return float("nan")
     peak = nav.cummax()
     return float((nav / peak - 1.0).min())
+
+
+def drawdown_series(nav: pd.Series) -> pd.Series:
+    """由净值序列算逐期回撤序列，用于画图。"""
+    if nav.empty:
+        return nav
+    return nav / nav.cummax() - 1.0
 
 
 def performance(

@@ -2,7 +2,7 @@
 
 用法：
     python scripts/run_ic.py --factor momentum_20d
-    python scripts/run_ic.py --factor momentum_20d --horizon 20 --decay
+    python scripts/run_ic.py --factor momentum_20d --decay
 """
 
 from __future__ import annotations
@@ -13,27 +13,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import pandas as pd
-
-from analysis.grouping import (
-    TRADING_DAYS_PER_YEAR,
-    add_forward_return,
-    add_listed_days,
-    rebalance_dates,
-)
+from analysis.grouping import TRADING_DAYS_PER_YEAR
 from analysis.ic import compute_ic, ic_decay, ic_summary
+from analysis.pipeline import build_panel, load_factor
 from common.config import load_config
 from common.db import session
 from factor.engine import load_bars
-
-
-def load_factor(conn, name: str) -> pd.DataFrame:
-    df = conn.execute(
-        "SELECT code, trade_date, value AS factor_value FROM fact_factor WHERE factor_name = ?",
-        [name],
-    ).df()
-    df["trade_date"] = pd.to_datetime(df["trade_date"])
-    return df
 
 
 def main() -> int:
@@ -50,28 +35,25 @@ def main() -> int:
 
     cfg = load_config()
     with session(cfg.database_path) as conn:
-        bars = load_bars(conn, args.start, args.end)
-        if bars.empty:
-            print("没有行情数据")
-            return 1
-        factor = load_factor(conn, args.factor)
-        if factor.empty:
-            print(f"因子 {args.factor} 无数据，先运行 compute_factors.py")
+        panel = build_panel(
+            conn,
+            args.factor,
+            horizon=args.horizon,
+            groups=None,
+            min_listed=args.min_listed,
+            start=args.start,
+            end=args.end,
+        )
+        if panel.empty:
+            print("没有可用样本，检查因子是否已计算")
             return 1
 
-        frame = add_forward_return(bars, args.horizon)
-        frame = add_listed_days(frame)
-        frame["trade_date"] = pd.to_datetime(frame["trade_date"])
-        panel = frame.merge(factor, on=["code", "trade_date"], how="inner")
-        panel = panel[panel["listed_days"] >= args.min_listed]
-
-        # 与分组回测保持一致：不重叠调仓，避免 IC 序列自相关导致 ICIR 虚高
-        dates = rebalance_dates(panel["trade_date"], args.horizon)
-        panel = panel[panel["trade_date"].isin(dates)]
         ic = compute_ic(panel, min_stocks=args.min_stocks)
 
         decay = None
         if args.decay:
+            bars = load_bars(conn, args.start, args.end)
+            factor = load_factor(conn, args.factor)
             decay = ic_decay(
                 bars,
                 factor,

@@ -14,7 +14,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-TRADING_DAYS_PER_YEAR = 252
+from common.constants import TRADING_DAYS_PER_YEAR
 
 
 def add_forward_return(bars: pd.DataFrame, horizon: int = 20) -> pd.DataFrame:
