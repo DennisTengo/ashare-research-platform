@@ -17,6 +17,7 @@ def test_init_schema_creates_all_tables(memory_db):
         "fact_factor",
         "meta_job_log",
         "meta_dq_result",
+        "meta_backtest",
     ):
         assert table_exists(memory_db, name), f"缺少表 {name}"
 
@@ -43,11 +44,17 @@ def test_primary_key_blocks_duplicate(schema_db):
 
 def test_financial_pk_contains_announce_date(schema_db):
     """同一报告期、不同公告日应允许并存（PIT 对齐的基础）。"""
-    schema_db.execute(
-        "INSERT INTO fact_financial VALUES ('600000.SH','2023-12-31','2024-03-30',1,1,1,1)"
+    cols = (
+        "(code, report_period, announce_date, revenue, net_profit, "
+        "total_assets, total_equity)"
     )
     schema_db.execute(
-        "INSERT INTO fact_financial VALUES ('600000.SH','2023-12-31','2024-04-28',2,2,2,2)"
+        f"INSERT INTO fact_financial {cols} "
+        "VALUES ('600000.SH','2023-12-31','2024-03-30',1,1,1,1)"
+    )
+    schema_db.execute(
+        f"INSERT INTO fact_financial {cols} "
+        "VALUES ('600000.SH','2023-12-31','2024-04-28',2,2,2,2)"
     )
     assert count_rows(schema_db, "fact_financial") == 2
 
