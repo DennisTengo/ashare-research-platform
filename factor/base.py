@@ -25,12 +25,15 @@ class Factor:
     description: 人话说明，用于报告和界面
     lookback:    计算所需的最少历史交易日数。不足时该股票输出 NaN
     fn:          计算函数，输入 bars，输出 Series
+    requires:    除行情外还需要合并的财务字段。为空表示纯价格因子；
+                 非空时引擎会在调用前按公告日把财务数据对齐到日频。
     """
 
     name: str
     description: str
     lookback: int
     fn: Callable[[pd.DataFrame], pd.Series]
+    requires: tuple[str, ...] = ()
 
 
 _REGISTRY: dict[str, Factor] = {}
@@ -42,6 +45,14 @@ def register(factor: Factor) -> Factor:
         raise ValueError(f"因子重名: {factor.name}")
     if factor.lookback < 1:
         raise ValueError(f"因子 {factor.name} 的 lookback 必须为正")
+    if factor.requires:
+        from analysis.financial import AVAILABLE_FIELDS
+
+        unknown = [c for c in factor.requires if c not in AVAILABLE_FIELDS]
+        if unknown:
+            raise ValueError(
+                f"因子 {factor.name} 声明了不可用的财务字段 {unknown}，可选：{AVAILABLE_FIELDS}"
+            )
     _REGISTRY[factor.name] = factor
     return factor
 

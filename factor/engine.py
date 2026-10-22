@@ -22,9 +22,23 @@ log = get_logger("factor.engine")
 
 
 def load_bars(
-    conn: duckdb.DuckDBPyConnection, start: str | None = None, end: str | None = None
+    conn: duckdb.DuckDBPyConnection,
+    start: str | None = None,
+    end: str | None = None,
+    financial_fields: tuple[str, ...] = (),
 ) -> pd.DataFrame:
-    """读取日线并计算复权价，按 (code, trade_date) 升序返回。"""
+    """读取日线并计算复权价，按 (code, trade_date) 升序返回。
+
+    financial_fields 非空时，一并将财务字段按公告日对齐到日频（存在 ACID 约束，
+    对齐逻辑全在 analysis.financial，这里只转发）。
+    """
+    if financial_fields:
+        # 延迟导入：analysis.financial 与 factor.engine 处于两个包，
+        # 顶层互相导入会触发循环初始化。
+        from analysis.financial import load_panel_with_financial
+
+        return load_panel_with_financial(conn, tuple(financial_fields), start, end)
+
     sql = """
         SELECT p.code, p.trade_date, p.close * f.adj_factor AS adj_close
         FROM fact_daily_price p
@@ -78,7 +92,9 @@ def compute_all(
     names = list(factor_names) if factor_names else sorted(all_factors())
     selected = {name: get(name) for name in names}
 
-    bars = load_bars(conn, start, end)
+    # 汇总本次需要合并的财务字段，一次读入，避免每个因子各查一遍库
+    required = tuple(sorted({col for f in selected.values() for col in f.requires}))
+    bars = load_bars(conn, start, end, financial_fields=required)
     if bars.empty:
         log.warning("没有可用的行情数据，跳过因子计算")
         return {name: 0 for name in names}

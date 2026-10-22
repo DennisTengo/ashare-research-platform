@@ -4,6 +4,6 @@
 新增因子时，在这里加一行导入即可，不需要改任何其他文件。
 """
 
-from factor.factors import momentum, reversal, volatility  # noqa: F401
+from factor.factors import momentum, quality, reversal, volatility  # noqa: F401
 
-__all__ = ["momentum", "reversal", "volatility"]
+__all__ = ["momentum", "quality", "reversal", "volatility"]
