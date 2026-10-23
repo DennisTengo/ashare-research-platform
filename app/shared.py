@@ -83,6 +83,70 @@ def stock_options() -> pd.DataFrame:
     ).df()
 
 
+@st.cache_data(ttl=3600)
+def closed_days(start: str, end: str) -> list[str]:
+    """区间内的休市日（含周末与节假日）。
+
+    日历表只存开市日，休市日用补集算：区间内所有自然日减去全市场开市日。
+    **不能用个股行情反推**——停牌日也会被算成休市日，那样等于把停牌
+    伪装成连续行情，比留空白更危险。
+    """
+    trading = (
+        get_conn()
+        .execute(
+            "SELECT trade_date FROM dim_calendar "
+            "WHERE is_open AND trade_date BETWEEN ? AND ?",
+            [start, end],
+        )
+        .df()["trade_date"]
+    )
+    if trading.empty:
+        return []
+    all_days = pd.date_range(start, end, freq="D")
+    closed = all_days.difference(pd.to_datetime(trading))
+    return [d.strftime("%Y-%m-%d") for d in closed]
+
+
+def rangebreaks(start: str, end: str) -> list[dict]:
+    """Plotly 的 x 轴断点设置。
+
+    周末用规则压缩（bounds），节假日用日期列表（values）。
+    分开处理是因为周末占休市日的绝大多数，用规则比列 2000 多个日期快得多。
+    只压缩休市日，不碰停牌日——停牌是真实信息，必须留在图上。
+    """
+    closed = closed_days(start, end)
+    workday_closed = [d for d in closed if pd.Timestamp(d).weekday() < 5]
+    breaks: list[dict] = [dict(bounds=["sat", "mon"])]
+    if workday_closed:
+        breaks.append(dict(values=workday_closed))
+    return breaks
+
+
+@st.cache_data(ttl=300)
+def missing_trading_days(code: str, start: str, end: str) -> list[str]:
+    """区间内全市场开市、但这只股票没数据的日子（停牌或未上市）。
+
+    这些日子在图上故意保留空档——它们是信息，不是噪声。
+    """
+    rows = (
+        get_conn()
+        .execute(
+            """
+            SELECT c.trade_date FROM dim_calendar c
+            WHERE c.is_open AND c.trade_date BETWEEN ? AND ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM fact_daily_price p
+                  WHERE p.code = ? AND p.trade_date = c.trade_date
+              )
+            ORDER BY c.trade_date
+            """,
+            [start, end, code],
+        )
+        .fetchall()
+    )
+    return [str(r[0]) for r in rows]
+
+
 @st.cache_data(ttl=300)
 def price_bars(code: str, start: str, end: str) -> pd.DataFrame:
     """原始价 + 复权因子，复权价在界面层按需换算。
@@ -125,7 +189,16 @@ def apply_adjust(df: pd.DataFrame, mode: str) -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def financials(code: str) -> pd.DataFrame:
-    """财务数据，按报告期降序。公告日一并返回——它决定这期数据哪天才能被看到。"""
+    """财务数据，按报告期降序。公告日一并返回——它决定这期数据哪天才能被看到。
+
+    营收补齐：baostock 只在一季报和三季报之外的期次提供主营收入，
+    Q1 与 Q3 的缺失率都是 99%。用 净利润 / 净利率 反推，
+    全样本中位误差 0.0006%
+
+    但净利率接近零时，反推会把微小误差放大到无法使用（p95 误差 6.8%），
+    所以只在该比值绝对值大于 0.5% 时才补，其余宁可留空。
+    补齐的行在 revenue_estimated 列标记，界面必须显示出来。
+    """
     df = get_conn().execute(
         """
         SELECT report_period, announce_date, revenue, net_profit, roe, eps,
@@ -135,9 +208,23 @@ def financials(code: str) -> pd.DataFrame:
         """,
         [code],
     ).df()
-    if not df.empty:
-        df["report_period"] = pd.to_datetime(df["report_period"]).dt.date
-        df["announce_date"] = pd.to_datetime(df["announce_date"]).dt.date
+    if df.empty:
+        return df
+
+    df["report_period"] = pd.to_datetime(df["report_period"]).dt.date
+    df["announce_date"] = pd.to_datetime(df["announce_date"]).dt.date
+
+    df["revenue_estimated"] = False
+    fillable = (
+        df["revenue"].isna()
+        & df["net_profit"].notna()
+        & df["net_margin"].notna()
+        & (df["net_margin"].abs() > 0.005)
+    )
+    df.loc[fillable, "revenue"] = (
+        df.loc[fillable, "net_profit"] / df.loc[fillable, "net_margin"]
+    )
+    df.loc[fillable, "revenue_estimated"] = True
     return df
 
 

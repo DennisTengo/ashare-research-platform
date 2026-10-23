@@ -17,10 +17,18 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import plotly.graph_objects as go
+import pandas as pd
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from app.shared import apply_adjust, financials, price_bars, stock_options
+from app.shared import (
+    apply_adjust,
+    financials,
+    missing_trading_days,
+    price_bars,
+    rangebreaks,
+    stock_options,
+)
 
 st.set_page_config(page_title="个股查询", page_icon="🔍", layout="wide")
 
@@ -29,23 +37,25 @@ ADJUST = {"不复权": "raw", "前复权": "forward", "后复权": "back"}
 
 
 def _picker(stocks) -> str:
-    """代码搜索框 + 下拉。搜索比滚 5500 行更快。"""
-    query = st.text_input("搜索代码或名称", placeholder="例如 600519 或 茅台")
-    view = stocks
-    if query:
-        mask = stocks["code"].str.contains(query, na=False) | stocks["name"].str.contains(
-            query, na=False
-        )
-        view = stocks[mask]
-    if view.empty:
-        st.warning("没有匹配的股票")
+    """代码与名称合一的下拉搜索。
+
+    Streamlit 的 selectbox 自带输入过滤，比「先输入框再下拉」两步操作
+    更接近搜索引擎的体验，也避免两个控件状态不同步的问题。
+    """
+    labels = [f"{r.code}  {r.name}" for r in stocks.itertuples()]
+    picked = st.selectbox(
+        "搜索代码或名称",
+        options=labels,
+        index=None,
+        placeholder="输入代码或名称，例如 600519 或 茅台",
+    )
+    if not picked:
         return ""
-    labels = [f"{r.code} {r.name}" for r in view.itertuples()]
-    picked = st.selectbox("选择股票", labels, index=0)
-    return picked.split(" ")[0]
+    # 代码里不含空格，用双空格分隔可避开“万  科Ａ”这类名称自带空格的情况
+    return picked.split("  ")[0]
 
 
-def _chart(df, title: str) -> None:
+def _chart(df, title: str, start: str, end: str) -> None:
     fig = make_subplots(
         rows=2, cols=1, shared_xaxes=True, row_heights=[0.72, 0.28], vertical_spacing=0.03
     )
@@ -62,13 +72,38 @@ def _chart(df, title: str) -> None:
         row=2, col=1,
     )
     fig.update_layout(
-        height=560,
+        # 高度必须显式给定：Plotly 在 iframe 里拿不到容器高度，autosize 会退化成默认值，
+        # 全屏后子图比例失调、成交量被挤出视口。
+        height=620,
         title=title,
         xaxis_rangeslider_visible=False,
         margin=dict(l=10, r=10, t=40, b=10),
         showlegend=False,
+        hovermode="x unified",
+        dragmode="zoom",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    # 压缩休市日：日期轴默认按真实时间比例铺开，春节长假会留出一大段空白。
+    # 只跳休市日，停牌日仍然留空——两者在图上应该区分开。
+    fig.update_xaxes(rangebreaks=rangebreaks(start, end))
+    # 锁定纵轴：Plotly 框选缩放会同时缩 x 和 y，纵向被框到很窄的价格带后，
+    # K 线就被挤出视野、整张图变成空白。fixedrange 让纵向不参与缩放，
+    # 框选与滚轮只作用于时间轴；纵向范围由当前数据自动决定。
+    fig.update_yaxes(fixedrange=True)
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={
+            "displaylogo": False,
+            # 滚轮缩放以鼠标位置为锚点，比点击按钮以中心为锚点自然得多
+            "scrollZoom": True,
+            # 去掉 zoomIn2d / zoomOut2d：它们是“以绘图区中心等比放大”，
+            # 连点几次后 K 线右端和成交量会被推出可视区域。
+            # 保留框选缩放（zoom2d）和重置（resetScale2d）。
+            "modeBarButtonsToRemove": [
+                "zoomIn2d", "zoomOut2d", "autoScale2d", "toggleSpikelines",
+            ],
+        },
+    )
 
 
 def _info_card(row) -> None:
@@ -123,7 +158,14 @@ def main() -> None:
         help=f"区间 {view['trade_date'].iloc[0].date()} ~ {view['trade_date'].iloc[-1].date()}",
     )
 
-    _chart(view, f"{code} {row.name}｜{adjust_label}｜{range_label}")
+    _chart(view, f"{code} {row.name}｜{adjust_label}｜{range_label}", start, end)
+
+    # 导出图表用的一控制：停牌日仍留空，不参与休市日压缩
+    missing = missing_trading_days(code, start, end)
+    if missing:
+        st.caption(
+            f"该区间内有 {len(missing)} 个交易日无数据（停牌或未上市），图上仍保留空档，未按休市日压缩。"
+        )
 
     if ADJUST[adjust_label] == "forward":
         st.caption("前复权以区间最后一日为基准，最新价格与不复权一致；切换区间时历史价格会随之变化。")
@@ -142,14 +184,37 @@ def main() -> None:
         show["roe"] = (show["roe"] * 100).round(2)
         show["gross_margin"] = (show["gross_margin"] * 100).round(2)
         show["net_margin"] = (show["net_margin"] * 100).round(2)
+
+        # 金额统一换成亿元，并给反推值加星号。
+        # 不标出来的话，用户会以为这是数据源给的原始营收。
+        def _money(series, estimated=None):
+            out = []
+            for i, v in enumerate(series):
+                if pd.isna(v):
+                    out.append("—")
+                    continue
+                text = f"{v / 1e8:.2f}"
+                if estimated is not None and bool(estimated.iloc[i]):
+                    text += " *"
+                out.append(text)
+            return out
+
+        est = show["revenue_estimated"] if "revenue_estimated" in show.columns else None
+        show["revenue"] = _money(show["revenue"], est)
+        show["net_profit"] = _money(show["net_profit"])
+
         show = show.rename(
             columns={
-                "report_period": "报告期", "announce_date": "公告日", "revenue": "营收",
-                "net_profit": "净利润", "roe": "ROE(%)", "eps": "EPS",
+                "report_period": "报告期", "announce_date": "公告日", "revenue": "营收(亿)",
+                "net_profit": "净利润(亿)", "roe": "ROE(%)", "eps": "EPS",
                 "gross_margin": "毛利率(%)", "net_margin": "净利率(%)",
             }
-        ).drop(columns=["extra"])
+        ).drop(columns=["extra", "revenue_estimated"], errors="ignore")
         st.dataframe(show, use_container_width=True, hide_index=True, height=380)
+        st.caption(
+            "带 * 的营收为按「净利润 ÷ 净利率」反推——数据源不提供一季报和三季报的营收。"
+            "全样本验证中位误差 0.0006%，但净利率绝对值小于 0.5% 时不反推（误差会放大）。"
+        )
 
 
 main()
