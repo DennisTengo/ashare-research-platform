@@ -47,6 +47,11 @@ st.markdown(
     [data-testid="stAppDeployButton"] {
         display: none;
     }
+    /* 隐藏运行状态小浮层（File change / Rerun / Always rerun），
+       这东西只在开发时有意义，盯着看盘的人只会觉得碍事。 */
+    [data-testid="stStatusWidget"] {
+        display: none;
+    }
     </style>
     """,
     unsafe_allow_html=True,

@@ -1,88 +1,108 @@
-"""图表构造的单元测试。
+"""K 线 option 构造。
 
-存在的理由：图表代码原本写在页面函数里，只有用户选完股票才执行，
-页面级冒烟测试覆盖不到。结果是一个 Candlestick 不支持的属性
-让页面直接白屏，而 5 个页面测试全绿。
+守四件事：
+    1. 纵轴必须 scale——这是换掉 Plotly 的唯一理由，缩放后纵轴要跟着可见区间走
+    2. dataZoom 只作用于 x 轴，纵轴交给 scale 自适应，不能让缩放碰它
+    3. 蜡烛数据顺序是 [开, 收, 低, 高]，与常见的 OHLC 排列不同，写错不报错、只画错
+    4. 停牌日必须留空档，否则「停牌一周后跳空开盘」会被画成平滑波动
 
-这里直接用构造好的 DataFrame 验证 Figure，不碰数据库、不起服务。
+option 是纯字典，这些断言都不需要起 Streamlit。
 """
 
 from __future__ import annotations
 
 import pandas as pd
-import pytest
 
-from app.charts import build_kline, kline_config
+from app.charts import DOWN, EMPTY, UP, build_kline_option
 
-pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
+CALENDAR = ["2024-01-02", "2024-01-03", "2024-01-04"]
 
 
-def _bars(n: int = 30) -> pd.DataFrame:
-    dates = pd.date_range("2024-01-02", periods=n, freq="B")
-    close = [10 + i * 0.1 for i in range(n)]
+def _bars() -> pd.DataFrame:
+    """三根蜡烛，第二根是跌的，便于验证涨跌配色。"""
     return pd.DataFrame(
         {
-            "trade_date": dates,
-            "open": close,
-            "high": [c + 0.2 for c in close],
-            "low": [c - 0.2 for c in close],
-            "close": close,
-            "volume": [1000 + i for i in range(n)],
+            "trade_date": pd.to_datetime(CALENDAR),
+            "open": [10.0, 11.0, 12.0],
+            "high": [10.5, 11.5, 12.5],
+            "low": [9.5, 10.5, 11.5],
+            "close": [10.8, 10.5, 12.8],
+            "volume": [100, 200, 300],
         }
     )
 
 
-def test_build_kline_has_candlestick_and_volume():
-    fig = build_kline(_bars(), "测试", "2024-01-01", "2024-12-31", breaks=[])
-    assert len(fig.data) == 2
-    assert fig.data[0].type == "candlestick"
-    assert fig.data[1].type == "bar"
+def test_y_axis_scales_to_visible_data():
+    """scale=True 才能让纵轴贴合当前可见区间。"""
+    option = build_kline_option(_bars())
+    assert option["yAxis"][0]["scale"] is True
 
 
-def test_build_kline_serializes_to_json():
-    """序列化能抓住「属性名不支持」这类错误——正是上次页面白屏的原因。"""
-    fig = build_kline(_bars(), "测试", "2024-01-01", "2024-12-31", breaks=[])
-    payload = fig.to_json()
-    assert "candlestick" in payload
+def test_datazoom_only_touches_x_axis():
+    """dataZoom 不能带 yAxisIndex，否则缩放会直接拉伸纵轴。"""
+    option = build_kline_option(_bars())
+    inside = next(z for z in option["dataZoom"] if z["type"] == "inside")
+    assert inside["xAxisIndex"] == [0, 1]
+    assert "yAxisIndex" not in inside
 
 
-def test_price_axis_follows_zoom():
-    """价格轴必须可缩放。
-
-    锁死纵轴会让全周期最高最低价一直生效，放大到一段低价区间后
-    K 线被压成一条线。框选时纵轴跟着收窄才符合看行情的直觉。
-    """
-    fig = build_kline(_bars(), "测试", "2024-01-01", "2024-12-31", breaks=[])
-    assert fig.layout.yaxis.fixedrange is False
+def test_candle_order_is_open_close_low_high():
+    option = build_kline_option(_bars())
+    candles = option["series"][0]["data"]
+    assert candles[0] == [10.0, 10.8, 9.5, 10.5]
 
 
-def test_volume_axis_stays_fixed():
-    """成交量轴保持固定。
+def test_missing_trading_day_keeps_gap():
+    """1/03 停牌：x 轴仍要有这一天，数值位置留空。"""
+    bars = _bars().drop(index=1)
+    option = build_kline_option(bars, CALENDAR)
 
-    跟着价格轴一起缩放会把柱状图拉得忽高忽低，不同周期之间失去可比性。
-    """
-    fig = build_kline(_bars(), "测试", "2024-01-01", "2024-12-31", breaks=[])
-    assert fig.layout.yaxis2.fixedrange is True
-
-
-def test_height_is_explicit():
-    """高度不能交给 autosize：iframe 里拿不到容器高度会退化。"""
-    fig = build_kline(_bars(), "测试", "2024-01-01", "2024-12-31", breaks=[])
-    assert fig.layout.height and fig.layout.height > 400
+    assert option["xAxis"][0]["data"] == CALENDAR
+    assert option["series"][0]["data"][1] == EMPTY
+    assert option["series"][1]["data"][1] == EMPTY
 
 
-def test_config_removes_confusing_buttons():
-    cfg = kline_config()
-    removed = set(cfg["modeBarButtonsToRemove"])
-    assert {"zoomIn2d", "zoomOut2d", "select2d", "lasso2d"} <= removed
-    # 滚轮是「以鼠标为中心等比缩放」，同时缩 x 和 y，K 线必然被拉变形。
-    # 缩放只保留框选：它能只框住时间区间，让纵轴跟着收窄。
-    assert cfg["scrollZoom"] is False
-    assert cfg["doubleClick"] == "reset"
+def test_without_calendar_uses_data_dates():
+    """周/月/年线不传日历，x 轴直接取数据里的日期。"""
+    option = build_kline_option(_bars())
+    assert len(option["xAxis"][0]["data"]) == 3
 
 
-def test_empty_frame_still_builds():
-    """空数据不应抛异常，页面靠自己判空。"""
-    empty = _bars().iloc[0:0]
-    fig = build_kline(empty, "空", "2024-01-01", "2024-12-31", breaks=[])
-    assert fig is not None
+def test_volume_color_follows_direction():
+    """红涨绿跌，与 A 股习惯一致。"""
+    volumes = build_kline_option(_bars())["series"][1]["data"]
+    assert volumes[0]["itemStyle"]["color"] == UP    # 10.0 → 10.8
+    assert volumes[1]["itemStyle"]["color"] == DOWN  # 11.0 → 10.5
+
+
+def test_initial_view_shows_recent_segment_when_dense():
+    """上千根全部铺开时每根蜡烛不到 1 像素，初始应只看末端一段。"""
+    n = 1000
+    bars = pd.DataFrame(
+        {
+            "trade_date": pd.date_range("2020-01-01", periods=n, freq="D"),
+            "open": [10.0] * n,
+            "high": [10.5] * n,
+            "low": [9.5] * n,
+            "close": [10.2] * n,
+            "volume": [100] * n,
+        }
+    )
+    option = build_kline_option(bars, initial_bars=100)
+    inside = next(z for z in option["dataZoom"] if z["type"] == "inside")
+    assert inside["start"] == 90.0
+    assert inside["end"] == 100
+
+
+def test_initial_view_shows_all_when_sparse():
+    """数据本来就少（周/月/年线）时不应该裁掉开头。"""
+    option = build_kline_option(_bars(), initial_bars=160)
+    inside = next(z for z in option["dataZoom"] if z["type"] == "inside")
+    assert inside["start"] == 0
+    assert inside["end"] == 100
+
+
+def test_toolbox_frames_zoom_on_time_axis_only():
+    """框选放大必须只缩时间轴；若连 y 一起缩就回到 Plotly 拉变形的问题。"""
+    option = build_kline_option(_bars())
+    assert option["toolbox"]["feature"]["dataZoom"]["yAxisIndex"] == "none"

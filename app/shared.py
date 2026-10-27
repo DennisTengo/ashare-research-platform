@@ -84,6 +84,25 @@ def stock_options() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=3600)
+def trading_days(start: str, end: str) -> list[str]:
+    """区间内的交易日列表。
+
+    K 线用它做完整的 x 轴刻度：库里行情是「有交易才有行」，直接用数据里的日期
+    会把停牌日隐去，停牌一周后的跳空开盘会被画成平滑波动。
+    """
+    rows = (
+        get_conn()
+        .execute(
+            "SELECT trade_date FROM dim_calendar WHERE is_open "
+            "AND trade_date BETWEEN ? AND ? ORDER BY trade_date",
+            [start, end],
+        )
+        .fetchall()
+    )
+    return [str(r[0]) for r in rows]
+
+
+@st.cache_data(ttl=3600)
 def closed_days(start: str, end: str) -> list[str]:
     """区间内的休市日（含周末与节假日）。
 

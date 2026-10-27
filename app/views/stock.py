@@ -26,13 +26,14 @@ import pandas as pd
 import streamlit as st
 
 from analysis.resample import to_period
-from app.charts import build_kline, kline_config
+from app.charts import build_kline_option
 from app.shared import (
     apply_adjust,
     financials,
     missing_trading_days,
     price_bars,
     stock_options,
+    trading_days,
 )
 
 # Plotly 的框选轮廓是单个 path 里的两个环（贴边外环 + 拖拽内环），
@@ -66,7 +67,6 @@ st.markdown(
         stroke: #C8C8C8 !important;
         stroke-width: 0 !important;
     }
-
     /* ---- 右侧报价面板 ---- */
     .qp { padding: 0.1rem 0.1rem 0 0.1rem; }
     .qp-head { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
@@ -324,15 +324,17 @@ def main() -> None:
     left, right = st.columns([3.5, 0.85], gap="small")
 
     with left:
-        # 周/月/年线本身没有连续的日历缺口，注入 rangebreaks 反而会错位
-        breaks = None if period_label == "日K" else []
-        # 不传标题：股票名、周期、复权状态在右侧面板和控件上都已经有了，
-        # 再占一行标题只会把 K 线往下挤。
-        st.plotly_chart(
-            build_kline(view, "", start, end, breaks=breaks),
-            use_container_width=True,
-            config=kline_config(),
-        )
+        # 日历必须跟数据实际覆盖的区间对齐。dim_calendar 从 1990 年就有记录，
+        # 而行情只采到 2020 以后，若拿整个 start 去取日历，前面十几年全是空值，
+        # K 线会被挤到最右边。
+        # 停牌日仍在区间内保留为空格，跳空不会被画成平滑波动。
+        if period_label == "日K":
+            first = str(view["trade_date"].min())[:10]
+            last = str(view["trade_date"].max())[:10]
+            calendar = trading_days(first, last)
+        else:
+            calendar = None
+        st.echarts_chart(build_kline_option(view, calendar), height=760)
 
     with right:
         _quote_panel(row, latest, prev, fin_row, period_label)

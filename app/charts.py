@@ -1,96 +1,302 @@
-"""图表构造。
+"""图表构造（Apache ECharts）。
 
-抽成独立模块的原因：图表代码原本嵌在页面函数里，只有当用户选完股票才会执行，
-所以页面级冒烟测试根本覆盖不到。结果就是一个 Candlestick 不支持的属性
-（unselected，那是散点图才有的）让页面直接白屏，而测试全绿。
+为什么从 Plotly 换过来：
+    Plotly 的缩放是「以鼠标为中心、同时缩 x 和 y」，纵轴范围要么被锁死
+    （放大到低价区间时 K 线被压成一条线），要么跟着等比缩放（K 线被拉变形）。
+    两种都不是看行情要的手感，而 Plotly 没有「缩放时纵轴重算」这个能力。
 
-图表构造是纯函数：输入 DataFrame，输出 Figure，不碰 Streamlit。
-这样可以直接单测，也可以复用到其他页面。
+    ECharts 把两件事拆开了：dataZoom 只作用于 x 轴，yAxis.scale 让纵轴
+    按当前可见数据重算。缩放后纵轴自动贴合可见区间，这是它的原生行为，
+    不需要任何事件回调。
+
+option 是纯数据字典，不依赖 Streamlit，可以直接单测。
+Streamlit 1.66 起内置 st.echarts_chart，不需要第三方组件。
 """
 
 from __future__ import annotations
 
 import pandas as pd
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
-from app.shared import rangebreaks
+# A 股配色：红涨绿跌（与欧美相反）
+UP = "#E5484D"
+DOWN = "#12A594"
+GRID_LINE = "rgba(128, 128, 128, 0.18)"
+AXIS_TEXT = "#8A8A8A"
+EMPTY = "-"  # ECharts 约定的空值标记
 
-UP_COLOR = "#E45756"
-DOWN_COLOR = "#54A24B"
 
+def build_kline_option(
+    df: pd.DataFrame,
+    calendar: list[str] | None = None,
+    initial_bars: int = 160,
+) -> dict:
+    """K 线 + 成交量的 ECharts option。
 
-def build_kline(
-    df: pd.DataFrame, title: str, start: str, end: str, breaks: list | None = None
-) -> go.Figure:
-    """K 线 + 成交量双图。
+    参数：
+        df            含 trade_date / open / high / low / close / volume，按日期升序
+        calendar      完整交易日序列。传入时缺失日期会留成空档，停牌不会被连成曲线；
+                      周/月/年线不需要传，聚合后本来就稀疏，日期直接取自数据。
+        initial_bars  初始视图展示的末端根数。全部历史（1000+ 根）一次性铺满时，
+                      每根蜡烛不到 1 像素，看起来就只剩一条线。默认只看最近一段，
+                      剩下的交给缩放滑块或滚轮。
 
-    df 需含 trade_date / open / high / low / close / volume，已按日期升序。
-    breaks 为 None 时按区间从交易日历算休市日；测试时传 [] 可避开数据库。
+    停牌留空这条不能省：库里的行情是按「有交易才有行」存的，如果 x 轴直接用
+    数据里的日期，停牌日会消失，「停牌一周后跳空开盘」会被画成平滑波动，
+    等于造假。
     """
-    fig = make_subplots(
-        rows=2, cols=1, shared_xaxes=True, row_heights=[0.72, 0.28], vertical_spacing=0.03
-    )
-    fig.add_trace(
-        go.Candlestick(
-            x=df["trade_date"],
-            open=df["open"],
-            high=df["high"],
-            low=df["low"],
-            close=df["close"],
-            name="K 线",
-            increasing_line_color=UP_COLOR,
-            decreasing_line_color=DOWN_COLOR,
-        ),
-        row=1, col=1,
-    )
-    colors = [UP_COLOR if c >= o else DOWN_COLOR for c, o in zip(df["close"], df["open"])]
-    fig.add_trace(
-        go.Bar(x=df["trade_date"], y=df["volume"], name="成交量", marker_color=colors),
-        row=2, col=1,
-    )
-    fig.update_layout(
-        # 高度必须显式给定：Plotly 在 iframe 里拿不到容器高度，
-        # autosize 会退化，全屏后子图比例失调、成交量被挤出视口。
-        height=760,
-        title=dict(text=title, font=dict(size=13)) if title else None,
-        xaxis_rangeslider_visible=False,
-        margin=dict(l=10, r=10, t=34 if title else 8, b=10),
-        showlegend=False,
-        hovermode="x unified",
-        dragmode="zoom",
-    )
-    # 压缩休市日，停牌日仍留空
-    fig.update_xaxes(rangebreaks=breaks if breaks is not None else rangebreaks(start, end))
-    # 价格轴跟随缩放：框选一段行情时 y 随之收窄，放大到低价区间不会再把 K 线压成一条线。
-    # 之前锁死 fixedrange=True 的副作用就是全周期最高最低价一直生效。
-    fig.update_yaxes(fixedrange=False, row=1, col=1)
-    # 成交量轴保持固定：跟着缩放会把柱状图拉得忽高忽低，失去比较意义。
-    fig.update_yaxes(fixedrange=True, row=2, col=1)
-    return fig
+    frame = df.copy()
+    frame["trade_date"] = pd.to_datetime(frame["trade_date"])
 
+    if calendar:
+        index = pd.DatetimeIndex(pd.to_datetime(calendar), name="trade_date")
+        frame = frame.set_index("trade_date").reindex(index).reset_index()
 
-def kline_config() -> dict:
-    """Plotly 工具栏配置。
+    dates = frame["trade_date"].dt.strftime("%Y-%m-%d").tolist()
 
-    去掉的按钮：
-        zoomIn2d / zoomOut2d  以绘图区中心等比放大，连点会把底部推出视野
-        select2d / lasso2d    框选数据点对 K 线无意义，且高亮逻辑是
-                              「未选中变淡」，容易让人以为特效加反了
-    """
+    # 初始视图只看末端一段，否则蜡烛密到不可见
+    total = len(dates)
+    start_pct = round((1 - initial_bars / total) * 100, 2) if total > initial_bars else 0
+
+    candles: list = []
+    volumes: list = []
+    for open_, close, low, high, volume in zip(
+        frame["open"], frame["close"], frame["low"], frame["high"], frame["volume"]
+    ):
+        if pd.isna(open_):
+            candles.append(EMPTY)
+            volumes.append(EMPTY)
+            continue
+        # ECharts 的蜡烛顺序固定为 [开, 收, 低, 高]，与常见的 OHLC 不同
+        candles.append(
+            [round(float(open_), 2), round(float(close), 2),
+             round(float(low), 2), round(float(high), 2)]
+        )
+        color = UP if close >= open_ else DOWN
+        volumes.append({"value": float(volume), "itemStyle": {"color": color}})
+
     return {
-        "displaylogo": False,
-        # 关闭滚轮缩放：Plotly 的滚轮是「以鼠标为中心等比缩放」，同时缩 x 和 y，
-        # K 线必然被拉变形。框选可以只框住想要的区间、纵轴跟着收窄，是唯一可靠的交互。
-        "scrollZoom": False,
-        # 双击回到初始视图，价格轴解开后需要一个明确的退路
-        "doubleClick": "reset",
-        "modeBarButtonsToRemove": [
-            "zoomIn2d",
-            "zoomOut2d",
-            "autoScale2d",
-            "toggleSpikelines",
-            "select2d",
-            "lasso2d",
+        "animation": False,
+        "backgroundColor": "transparent",
+        "textStyle": {"fontFamily": "inherit"},
+        "tooltip": {
+            "trigger": "axis",
+            "axisPointer": {"type": "cross"},
+            "backgroundColor": "rgba(32, 32, 32, 0.88)",
+            "borderWidth": 0,
+            "textStyle": {"color": "#EDEDED", "fontSize": 12},
+        },
+        "axisPointer": {"link": [{"xAxisIndex": "all"}]},
+        # 框选放大：点工具栏的放大镜图标后拖出一个矩形，只缩时间轴，纵轴交给 scale 重算。
+        # 不直接拦截鼠标右键：st.echarts_chart 不支持 JS 回调，拿不到原始鼠标事件。
+        "toolbox": {
+            "show": True,
+            "right": 10,
+            "top": 4,
+            "itemSize": 13,
+            "iconStyle": {"borderColor": AXIS_TEXT},
+            "feature": {
+                "dataZoom": {
+                    "yAxisIndex": "none",
+                    "title": {"zoom": "框选放大", "back": "取消框选"},
+                },
+                "restore": {"title": "还原"},
+            },
+        },
+        "grid": [
+            # top 留到 26 给右上角的工具栏图标腾位置，否则第一个图标会压在 K 线上
+            {"left": 58, "right": 14, "top": 26, "height": "58%"},
+            {"left": 58, "right": 14, "top": "72%", "height": "14%"},
+        ],
+        "xAxis": [
+            {
+                "type": "category",
+                "data": dates,
+                "gridIndex": 0,
+                "boundaryGap": True,
+                "axisLine": {"lineStyle": {"color": GRID_LINE}},
+                "axisTick": {"show": False},
+                "axisLabel": {"show": False},
+                "splitLine": {"show": False},
+            },
+            {
+                "type": "category",
+                "data": dates,
+                "gridIndex": 1,
+                "boundaryGap": True,
+                "axisLine": {"lineStyle": {"color": GRID_LINE}},
+                "axisTick": {"show": False},
+                "axisLabel": {"color": AXIS_TEXT, "fontSize": 11},
+                "splitLine": {"show": False},
+            },
+        ],
+        "yAxis": [
+            {
+                # scale=True 是关键：纵轴不从 0 起算，而是贴合当前可见数据的范围。
+                # 缩放时 ECharts 会自动重算，这是 Plotly 做不到的。
+                "scale": True,
+                "gridIndex": 0,
+                "axisLine": {"show": False},
+                "axisTick": {"show": False},
+                "axisLabel": {"color": AXIS_TEXT, "fontSize": 11},
+                "splitLine": {"lineStyle": {"color": GRID_LINE}},
+            },
+            {
+                "scale": True,
+                "gridIndex": 1,
+                "splitNumber": 2,
+                "axisLine": {"show": False},
+                "axisTick": {"show": False},
+                "axisLabel": {"show": False},
+                "splitLine": {"show": False},
+            },
+        ],
+        "dataZoom": [
+            # inside：滚轮缩放，只作用于 x，纵轴交给 scale 自适应
+            {
+                "type": "inside",
+                "xAxisIndex": [0, 1],
+                "start": start_pct,
+                "end": 100,
+            },
+            # slider：底部区间条，一眼看到当前视图在整段历史里的位置
+            {
+                "type": "slider",
+                "xAxisIndex": [0, 1],
+                "bottom": 6,
+                "height": 16,
+                "start": start_pct,
+                "end": 100,
+                "showDetail": False,
+                "borderColor": "transparent",
+                "fillerColor": "rgba(128, 128, 128, 0.15)",
+                "handleStyle": {"color": "#9A9A9A"},
+                "textStyle": {"color": AXIS_TEXT, "fontSize": 10},
+            },
+        ],
+        "series": [
+            {
+                "name": "K线",
+                "type": "candlestick",
+                "data": candles,
+                "xAxisIndex": 0,
+                "yAxisIndex": 0,
+                "itemStyle": {
+                    "color": UP,
+                    "color0": DOWN,
+                    "borderColor": UP,
+                    "borderColor0": DOWN,
+                    "borderWidth": 1,
+                },
+            },
+            {
+                "name": "成交量",
+                "type": "bar",
+                "data": volumes,
+                "xAxisIndex": 1,
+                "yAxisIndex": 1,
+            },
+        ],
+    }
+
+
+def bar_option(
+    x: list,
+    y: list,
+    *,
+    color: str = "#4C78A8",
+    height: str = "320px",
+    ylabel: str = "",
+) -> dict:
+    """单系列柱状图。用于月度入库量、分组收益、IC 时序这类简单统计。"""
+    return {
+        "animation": False,
+        "backgroundColor": "transparent",
+        "textStyle": {"fontFamily": "inherit"},
+        "grid": {"left": 62, "right": 18, "top": 18, "bottom": 42},
+        "tooltip": {
+            "trigger": "axis",
+            "axisPointer": {"type": "shadow"},
+            "backgroundColor": "rgba(32, 32, 32, 0.88)",
+            "borderWidth": 0,
+            "textStyle": {"color": "#EDEDED", "fontSize": 12},
+        },
+        "xAxis": {
+            "type": "category",
+            "data": [str(v) for v in x],
+            "axisLine": {"lineStyle": {"color": GRID_LINE}},
+            "axisTick": {"show": False},
+            "axisLabel": {"color": AXIS_TEXT, "fontSize": 11},
+        },
+        "yAxis": {
+            "type": "value",
+            "name": ylabel,
+            "nameTextStyle": {"color": AXIS_TEXT, "fontSize": 11},
+            "axisLine": {"show": False},
+            "axisTick": {"show": False},
+            "axisLabel": {"color": AXIS_TEXT, "fontSize": 11},
+            "splitLine": {"lineStyle": {"color": GRID_LINE}},
+        },
+        "series": [
+            {
+                "type": "bar",
+                "data": [float(v) for v in y],
+                "itemStyle": {"color": color},
+                "barMaxWidth": 28,
+            }
+        ],
+    }
+
+
+def line_option(
+    x: list,
+    series: dict[str, list],
+    *,
+    height: str = "380px",
+    ylabel: str = "",
+) -> dict:
+    """多系列折线图。用于累计净值这类多曲线对比。"""
+    return {
+        "animation": False,
+        "backgroundColor": "transparent",
+        "textStyle": {"fontFamily": "inherit"},
+        "grid": {"left": 62, "right": 18, "top": 46, "bottom": 56},
+        "legend": {
+            "top": 8,
+            "textStyle": {"color": AXIS_TEXT, "fontSize": 11},
+            "itemWidth": 14,
+            "itemHeight": 8,
+        },
+        "tooltip": {
+            "trigger": "axis",
+            "backgroundColor": "rgba(32, 32, 32, 0.88)",
+            "borderWidth": 0,
+            "textStyle": {"color": "#EDEDED", "fontSize": 12},
+        },
+        "xAxis": {
+            "type": "category",
+            "data": [str(v) for v in x],
+            "axisLine": {"lineStyle": {"color": GRID_LINE}},
+            "axisTick": {"show": False},
+            "axisLabel": {"color": AXIS_TEXT, "fontSize": 11},
+        },
+        "yAxis": {
+            "type": "value",
+            "name": ylabel,
+            "scale": True,
+            "nameTextStyle": {"color": AXIS_TEXT, "fontSize": 11},
+            "axisLine": {"show": False},
+            "axisTick": {"show": False},
+            "axisLabel": {"color": AXIS_TEXT, "fontSize": 11},
+            "splitLine": {"lineStyle": {"color": GRID_LINE}},
+        },
+        "series": [
+            {
+                "name": name,
+                "type": "line",
+                "data": [round(float(v), 4) for v in values],
+                "showSymbol": False,
+                "lineWidth": 1.6,
+            }
+            for name, values in series.items()
         ],
     }
