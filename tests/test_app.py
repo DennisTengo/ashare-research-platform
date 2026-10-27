@@ -5,6 +5,9 @@
 很容易漏，而且每次改数据层都可能让页面悄悄坏掉。
 
 AppTest 会真实执行页面脚本，捕获未处理异常。
+
+页面脚本放在 views/ 下，入口 main.py 通过 st.navigation 组织它们。
+两边都要测：单页测内容，入口测导航装配是否成立。
 """
 
 from __future__ import annotations
@@ -23,28 +26,34 @@ def _run(page: str) -> AppTest:
     return at
 
 
-def test_overview_page_runs():
+def test_entry_navigation_runs():
+    """入口文件用 st.navigation 装配页面，能跑完不异常即说明页面清单有效。"""
     at = _run("main.py")
     assert not at.exception, at.exception
 
 
+def test_overview_page_runs():
+    at = _run("views/overview.py")
+    assert not at.exception, at.exception
+
+
 def test_stock_page_runs():
-    at = _run("pages/1_stock.py")
+    at = _run("views/stock.py")
     assert not at.exception, at.exception
 
 
 def test_factor_page_renders_without_running():
     """未点「运行分析」时页面应正常展示表单，而不是空转或报错。"""
-    at = _run("pages/2_factor.py")
+    at = _run("views/factor_analysis.py")
     assert not at.exception, at.exception
 
 
 def test_quality_page_renders_without_running():
-    at = _run("pages/3_quality.py")
+    at = _run("views/data_quality.py")
     assert not at.exception, at.exception
 
 
 def test_stock_page_has_metrics():
     """首页应有指标卡，说明数据读出来了。"""
-    at = _run("main.py")
+    at = _run("views/overview.py")
     assert len(at.metric) >= 5

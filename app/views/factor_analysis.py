@@ -23,9 +23,6 @@ import streamlit as st
 from app.shared import factor_names, factor_registry
 from common.config import load_config
 
-st.set_page_config(page_title="因子分析", page_icon="📊", layout="wide")
-
-
 @st.cache_data(ttl=600, show_spinner=False)
 def run_analysis(factor: str, horizon: int, groups: int, start: str | None, end: str | None):
     """跑一次完整分析。返回结构化结果供页面渲染。

@@ -20,9 +20,6 @@ import streamlit as st
 
 from common.config import load_config
 
-st.set_page_config(page_title="数据校验", page_icon="🔎", layout="wide")
-
-
 @st.cache_data(ttl=300, show_spinner=False)
 def run_checks():
     """跑全部校验规则，返回 {规则: [Finding]}。"""

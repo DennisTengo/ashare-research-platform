@@ -238,9 +238,12 @@ def factor_names() -> list[str]:
     ]
 
 
-@st.cache_resource
 def factor_registry() -> dict:
-    """已注册因子的元信息（名称、说明），用于界面展示。"""
+    """已注册因子的元信息（名称、说明），用于界面展示。
+
+    不缓存：函数体是纯内存构建，耗时可以忽略；而它内部的模块 import 会在
+    cache_resource 未命中时与已持有的缓存锁相互作用，造成脚本线程阻塞。
+    """
     import factor.factors  # noqa: F401  触发自动发现
     from factor.base import all_factors
 
