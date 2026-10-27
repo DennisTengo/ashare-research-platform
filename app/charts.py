@@ -247,6 +247,89 @@ def bar_option(
     }
 
 
+def financial_option(df: pd.DataFrame, periods: int = 12) -> dict:
+    """营收与净利润的季度对比。
+
+    两个量级差一个数量级，共用一根 y 轴会把净利润压成一条线，所以用双轴：
+    左轴营收，右轴净利。
+
+    注意：营收只有半年报和年报是数据源原始值，一季报和三季报是按
+    「净利润 ÷ 净利率」反推的，误差已验过但仍是估算值。
+    """
+    if df.empty:
+        return {"series": []}
+
+    view = df.sort_values("report_period").tail(periods)
+
+    labels = []
+    for period in view["report_period"]:
+        stamp = pd.Timestamp(period)
+        labels.append(f"{stamp.year % 100:02d}Q{(stamp.month - 1) // 3 + 1}")
+
+    def _to_yi(series) -> list:
+        return [round(float(v) / 1e8, 2) if pd.notna(v) else None for v in series]
+
+    return {
+        "animation": False,
+        "backgroundColor": "transparent",
+        "textStyle": {"fontFamily": "inherit"},
+        "grid": {"left": 40, "right": 40, "top": 34, "bottom": 24},
+        "legend": {
+            "top": 2,
+            "itemWidth": 10,
+            "itemHeight": 7,
+            "textStyle": {"fontSize": 10, "color": AXIS_TEXT},
+        },
+        "tooltip": {
+            "trigger": "axis",
+            "axisPointer": {"type": "shadow"},
+            "backgroundColor": "rgba(32, 32, 32, 0.88)",
+            "borderWidth": 0,
+            "textStyle": {"color": "#EDEDED", "fontSize": 11},
+        },
+        "xAxis": {
+            "type": "category",
+            "data": labels,
+            "axisLine": {"lineStyle": {"color": GRID_LINE}},
+            "axisTick": {"show": False},
+            "axisLabel": {"color": AXIS_TEXT, "fontSize": 9, "interval": 0},
+        },
+        "yAxis": [
+            {
+                "type": "value",
+                "axisLine": {"show": False},
+                "axisTick": {"show": False},
+                "axisLabel": {"color": AXIS_TEXT, "fontSize": 9},
+                "splitLine": {"lineStyle": {"color": GRID_LINE}},
+            },
+            {
+                "type": "value",
+                "axisLine": {"show": False},
+                "axisTick": {"show": False},
+                "axisLabel": {"color": AXIS_TEXT, "fontSize": 9},
+                "splitLine": {"show": False},
+            },
+        ],
+        "series": [
+            {
+                "name": "营收(亿)",
+                "type": "bar",
+                "data": _to_yi(view["revenue"]),
+                "itemStyle": {"color": "#4C78A8"},
+                "barMaxWidth": 12,
+            },
+            {
+                "name": "净利(亿)",
+                "type": "bar",
+                "yAxisIndex": 1,
+                "data": _to_yi(view["net_profit"]),
+                "itemStyle": {"color": UP},
+                "barMaxWidth": 12,
+            },
+        ],
+    }
+
+
 def line_option(
     x: list,
     series: dict[str, list],

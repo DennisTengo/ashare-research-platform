@@ -26,7 +26,7 @@ import pandas as pd
 import streamlit as st
 
 from analysis.resample import to_period
-from app.charts import build_kline_option
+from app.charts import build_kline_option, financial_option
 from app.shared import (
     apply_adjust,
     financials,
@@ -338,9 +338,13 @@ def main() -> None:
 
     with right:
         _quote_panel(row, latest, prev, fin_row, period_label)
+        if not fin.empty:
+            st.echarts_chart(financial_option(fin), height=300)
 
     if period_label == "日K":
-        missing = missing_trading_days(current, start, end)
+        # 用数据实际覆盖的区间。若拿 start（1990 年）去算，上市前的交易日
+        # 会被全部报成「无数据」，这个提示就没有意义了。
+        missing = missing_trading_days(current, first, last)
         if missing:
             st.caption(
                 f"区间内有 {len(missing)} 个交易日无数据（停牌或未上市），"

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from app.charts import DOWN, EMPTY, UP, build_kline_option
+from app.charts import DOWN, EMPTY, UP, build_kline_option, financial_option
 
 CALENDAR = ["2024-01-02", "2024-01-03", "2024-01-04"]
 
@@ -106,3 +106,36 @@ def test_toolbox_frames_zoom_on_time_axis_only():
     """框选放大必须只缩时间轴；若连 y 一起缩就回到 Plotly 拉变形的问题。"""
     option = build_kline_option(_bars())
     assert option["toolbox"]["feature"]["dataZoom"]["yAxisIndex"] == "none"
+
+
+def test_financial_option_uses_two_axes():
+    """营收和净利量级差一个数量级，必须分轴，否则净利被压成一条线。"""
+    fin = pd.DataFrame(
+        {
+            "report_period": pd.to_datetime(["2024-03-31", "2024-06-30"]),
+            "revenue": [1e10, 2e10],
+            "net_profit": [1e9, 3e9],
+        }
+    )
+    option = financial_option(fin)
+    assert len(option["yAxis"]) == 2
+    assert option["series"][1]["yAxisIndex"] == 1
+
+
+def test_financial_option_converts_to_yi_and_labels_quarters():
+    fin = pd.DataFrame(
+        {
+            "report_period": pd.to_datetime(["2024-03-31", "2024-12-31"]),
+            "revenue": [1e10, 2e10],
+            "net_profit": [1e9, 3e9],
+        }
+    )
+    option = financial_option(fin)
+    assert option["xAxis"]["data"] == ["24Q1", "24Q4"]
+    assert option["series"][0]["data"] == [100.0, 200.0]  # 元 → 亿
+    assert option["series"][1]["data"] == [10.0, 30.0]
+
+
+def test_financial_option_handles_empty_frame():
+    empty = pd.DataFrame(columns=["report_period", "revenue", "net_profit"])
+    assert financial_option(empty)["series"] == []
