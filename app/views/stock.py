@@ -72,16 +72,16 @@ st.markdown(
     .qp-head { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
     .qp-name { font-size: 1.45rem; font-weight: 650; line-height: 1.2; }
     .qp-code { font-size: 0.95rem; opacity: 0.6; letter-spacing: 0.04em; }
-    .qp-price { font-size: 2.05rem; font-weight: 700; line-height: 1.1; margin-top: 0.55rem; }
-    .qp-chg { font-size: 0.98rem; margin-bottom: 0.85rem; }
+    .qp-price { font-size: 1.95rem; font-weight: 700; line-height: 1.1; margin-top: 0.45rem; }
+    .qp-chg { font-size: 0.98rem; margin-bottom: 0.65rem; }
     .qp-sec {
         font-size: 0.76rem; letter-spacing: 0.1em; opacity: 0.55;
-        margin: 0.95rem 0 0.3rem 0; text-transform: uppercase;
+        margin: 0.7rem 0 0.28rem 0; text-transform: uppercase;
     }
     .qp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.1rem 0.7rem; }
     .qp-item {
         display: flex; justify-content: space-between; gap: 0.5rem;
-        padding: 0.22rem 0; border-bottom: 1px solid rgba(128, 128, 128, 0.16);
+        padding: 0.16rem 0; border-bottom: 1px solid rgba(128, 128, 128, 0.16);
         font-size: 0.9rem;
     }
     .qp-item span { opacity: 0.6; white-space: nowrap; }
@@ -321,6 +321,8 @@ def main() -> None:
     fin = financials(current)
     fin_row = fin.iloc[0].to_dict() if not fin.empty else None
 
+    # 右栏给季度图留出宽度：K 线本身有 dataZoom，宽度略让不亏，
+    # 季度图是静态双轴柱，拥挤就直接可读性下降。
     left, right = st.columns([3.5, 0.85], gap="small")
 
     with left:
@@ -339,7 +341,7 @@ def main() -> None:
     with right:
         _quote_panel(row, latest, prev, fin_row, period_label)
         if not fin.empty:
-            st.echarts_chart(financial_option(fin), height=300)
+            st.echarts_chart(financial_option(fin), height=440)
 
     if period_label == "日K":
         # 用数据实际覆盖的区间。若拿 start（1990 年）去算，上市前的交易日

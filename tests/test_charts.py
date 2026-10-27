@@ -131,7 +131,8 @@ def test_financial_option_converts_to_yi_and_labels_quarters():
         }
     )
     option = financial_option(fin)
-    assert option["xAxis"]["data"] == ["24Q1", "24Q4"]
+    # 标签拆成两行：年、季度各占一行，右栏才排得开 8 组柱子
+    assert option["xAxis"]["data"] == ["24\nQ1", "24\nQ4"]
     assert option["series"][0]["data"] == [100.0, 200.0]  # 元 → 亿
     assert option["series"][1]["data"] == [10.0, 30.0]
 
