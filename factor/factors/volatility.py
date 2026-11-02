@@ -27,5 +27,7 @@ register(
         description="过去 20 个交易日日收益率标准差",
         lookback=WINDOW + 1,
         fn=compute,
+        horizon=20,
+        groups=5,
     )
 )

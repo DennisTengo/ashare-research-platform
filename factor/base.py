@@ -11,8 +11,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 import pandas as pd
 
@@ -27,6 +27,14 @@ class Factor:
     fn:          计算函数，输入 bars，输出 Series
     requires:    除行情外还需要合并的财务字段。为空表示纯价格因子；
                  非空时引擎会在调用前按公告日把财务数据对齐到日频。
+    horizon:     评估这个因子时的持有交易日数，同时决定调仓间隔。
+    groups:      评估这个因子时的分组数，最高组为多头、最低组为空头。
+
+    为什么 horizon / groups 归因子所有，而不是做成全局参数：
+        一个因子的经济含义自带时间尺度——动量看 20 日、价值看季度。
+        让使用者每次在界面上挑一组参数，等于允许用 12 种参数反复试到好看为止，
+        结果不可追溯。写在因子里，参数就是因子定义的一部分：
+        参数变了就是另一个档案（新的 params_hash），旧的数字仍然说得清。
     """
 
     name: str
@@ -34,6 +42,13 @@ class Factor:
     lookback: int
     fn: Callable[[pd.DataFrame], pd.Series]
     requires: tuple[str, ...] = ()
+    horizon: int = 20
+    groups: int = 5
+
+    @property
+    def settings(self) -> dict:
+        """评估设置。写进报告的 Simulation Settings，也是 params_hash 的输入。"""
+        return {"horizon": self.horizon, "groups": self.groups}
 
 
 _REGISTRY: dict[str, Factor] = {}
@@ -45,6 +60,14 @@ def register(factor: Factor) -> Factor:
         raise ValueError(f"因子重名: {factor.name}")
     if factor.lookback < 1:
         raise ValueError(f"因子 {factor.name} 的 lookback 必须为正")
+    if not 1 <= factor.horizon <= 252:
+        raise ValueError(
+            f"因子 {factor.name} 的 horizon 必须在 1~252 个交易日内，收到 {factor.horizon}"
+        )
+    if not 2 <= factor.groups <= 20:
+        raise ValueError(
+            f"因子 {factor.name} 的 groups 必须在 2~20 之间，收到 {factor.groups}"
+        )
     if factor.requires:
         from analysis.financial import AVAILABLE_FIELDS
 

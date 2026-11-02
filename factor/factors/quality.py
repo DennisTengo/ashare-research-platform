@@ -40,6 +40,10 @@ register(
         lookback=1,
         fn=compute_roe,
         requires=("roe_annualized",),
+        # 保持历史口径 20 日：参数现在归因子所有，改它会生成新档案，
+        # 财务类因子实际上看季度（60 日）更合理，但那是研究决策，不在这轮顺手改。
+        horizon=20,
+        groups=5,
     )
 )
 
@@ -50,5 +54,7 @@ register(
         lookback=1,
         fn=compute_net_profit_yoy,
         requires=("net_profit_yoy",),
+        horizon=20,
+        groups=5,
     )
 )

@@ -24,5 +24,8 @@ register(
         description="过去 20 个交易日复权收益率",
         lookback=WINDOW + 1,
         fn=compute,
+        # 动量看 20 日、5 分组，与窗口长度一致
+        horizon=20,
+        groups=5,
     )
 )

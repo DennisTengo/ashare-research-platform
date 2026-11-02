@@ -122,6 +122,28 @@ CREATE TABLE IF NOT EXISTS meta_backtest (
 )
 """
 
+# 因子快照报告。
+# 与 meta_backtest 的区别：那张表存「某次回测跑出什么」，同一因子可以有很多条；
+# 这张表存「这个因子的档案」，一个 (因子, 参数) 只应有一条，重算就覆盖。
+# 主键含 params_hash 而不是只靠 factor_name：改了 horizon/groups 或代码，
+# 就是另一份档案，旧的那份得留着，否则「上周那个数怎么来的」永远说不清。
+DDL_FACTOR_REPORT = """
+CREATE TABLE IF NOT EXISTS meta_factor_report (
+    factor_name VARCHAR NOT NULL,
+    params_hash VARCHAR NOT NULL,
+    status      VARCHAR NOT NULL,
+    code_hash   VARCHAR,
+    params      JSON,
+    metrics     JSON,
+    yearly      JSON,
+    curve       JSON,
+    n_periods   INTEGER,
+    computed_at TIMESTAMP,
+    error       VARCHAR,
+    PRIMARY KEY (factor_name, params_hash)
+)
+"""
+
 ALL_DDL = [
     DDL_CALENDAR,
     DDL_STOCK,
@@ -132,6 +154,7 @@ ALL_DDL = [
     DDL_JOB_LOG,
     DDL_DQ_RESULT,
     DDL_BACKTEST,
+    DDL_FACTOR_REPORT,
 ]
 
 
