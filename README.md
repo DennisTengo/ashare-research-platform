@@ -22,6 +22,9 @@
 | 因子快照 | 5 份 | `scripts/compute_factor_reports.py` 离线算出、落 `meta_factor_report`，页面只读 |
 | 界面 | 5 页 | 首页看板、个股查询、因子库（列表 + 详情）、策略回测、数据质检 |
 
+因子库列表**双击一行**进详情（单击只选中，不跳转）。原生 `st.dataframe` 没有双击事件，
+所以这一页的表格用 `streamlit-aggrid` 渲染；其余各页仍是原生表格，样式会略有差异。
+
 ## 快速开始
 
 ```bash
@@ -84,7 +87,7 @@ python scripts/compute_factor_reports.py --factor roe --force   # 只算一个�
 | `warehouse/` | 表结构与幂等写入 |
 | `scripts/` | 十一个可执行入口 |
 | `common/` | 配置、日志、数据库连接、代码标准化 |
-| `tests/` | 229 个单元测试 |
+| `tests/` | 233 个单元测试 |
 | `docs/` | 需求、开发日志 |
 
 ## 已有结论（沪深 300，2020-04 ~ 2026-09，79 个调仓期，扣双边成本）
@@ -124,7 +127,7 @@ python scripts/compute_factor_reports.py --factor roe --force   # 只算一个�
 ## 文档
 
 - [需求分析与功能规格](docs/requirements.md)
-- [开发日志](docs/DEVLOG.md)（41 条问题记录，含被否决的方案与原因）
+- [开发日志](docs/DEVLOG.md)（42 条问题记录，含被否决的方案与原因）
 
 ## 几条硬约束
 
