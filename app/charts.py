@@ -353,7 +353,11 @@ def line_option(
     height: str = "380px",
     ylabel: str = "",
 ) -> dict:
-    """多系列折线图。用于累计净值这类多曲线对比。"""
+    """多系列折线图。用于累计净值这类多曲线对比。
+
+    series 的值可以是 None（滚动指标的前几期本来就没有值）。None 原样保留，
+    ECharts 会在那里断开而不是画成 0——画成 0 会变成一个好看但假的金叉。
+    """
     return {
         "animation": False,
         "backgroundColor": "transparent",
@@ -392,7 +396,7 @@ def line_option(
             {
                 "name": name,
                 "type": "line",
-                "data": [round(float(v), 4) for v in values],
+                "data": [None if v is None else round(float(v), 4) for v in values],
                 "showSymbol": False,
                 "lineWidth": 1.6,
             }

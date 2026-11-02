@@ -133,6 +133,7 @@ CREATE TABLE IF NOT EXISTS meta_factor_report (
     params_hash VARCHAR NOT NULL,
     status      VARCHAR NOT NULL,
     code_hash   VARCHAR,
+    source      VARCHAR,
     params      JSON,
     metrics     JSON,
     yearly      JSON,
@@ -158,7 +159,19 @@ ALL_DDL = [
 ]
 
 
+# 已有库的补列。CREATE TABLE IF NOT EXISTS 只在表不存在时生效，
+# 表已经有了就不会变；所以新增字段要另外把 ALTER 写在这里，重复执行无害。
+# 只加列、不改类型、不删列：历史档案不能因为改表结构就丢掉。
+MIGRATIONS = [
+    # 存「算这组数字时的源码」，不是当前源码。代码改过之后，
+    # 旧档案里的数字仍然能找到它是哪版代码算出来的。
+    "ALTER TABLE meta_factor_report ADD COLUMN IF NOT EXISTS source VARCHAR",
+]
+
+
 def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
     """幂等建表，可重复执行。"""
     for ddl in ALL_DDL:
         conn.execute(ddl)
+    for statement in MIGRATIONS:
+        conn.execute(statement)

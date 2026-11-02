@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from app.charts import DOWN, EMPTY, UP, build_kline_option, financial_option
+from app.charts import DOWN, EMPTY, UP, build_kline_option, financial_option, line_option
 
 CALENDAR = ["2024-01-02", "2024-01-03", "2024-01-04"]
 
@@ -140,3 +140,21 @@ def test_financial_option_converts_to_yi_and_labels_quarters():
 def test_financial_option_handles_empty_frame():
     empty = pd.DataFrame(columns=["report_period", "revenue", "net_profit"])
     assert financial_option(empty)["series"] == []
+
+
+def test_line_option_keeps_none_as_gap():
+    """滚动指标前几期没有值，必须是断口，不能画成 0。
+
+    画成 0 的后果不是难看：夏普从 1.2 掉到 0 再升回 0.9，看着像一段真实的失效期。
+    """
+    option = line_option(["d1", "d2", "d3"], {"滚动夏普": [None, 0.5, 1.25]})
+    assert option["series"][0]["data"] == [None, 0.5, 1.25]
+
+
+def test_line_option_rounds_values_and_lists_every_series():
+    option = line_option(
+        ["d1", "d2"],
+        {"多空(净)": [1.0, 1.23456], "基准(等权)": [1.0, 0.98765]},
+    )
+    assert [s["name"] for s in option["series"]] == ["多空(净)", "基准(等权)"]
+    assert option["series"][0]["data"] == [1.0, 1.2346]

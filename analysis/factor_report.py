@@ -53,7 +53,7 @@ STATUS_STALE = "需重算"
 
 TABLE = "meta_factor_report"
 _COLUMNS = (
-    "factor_name", "params_hash", "status", "code_hash", "params",
+    "factor_name", "params_hash", "status", "code_hash", "source", "params",
     "metrics", "yearly", "curve", "n_periods", "computed_at", "error",
 )
 
@@ -252,6 +252,7 @@ def build_report(
         "params_hash": ph,
         "status": STATUS_READY,
         "code_hash": code_hash(factor),
+        "source": source_code(factor),
         "params": params,
         "metrics": {
             "n_periods": n_periods,
@@ -278,6 +279,7 @@ def save_report(conn: duckdb.DuckDBPyConnection, report: dict) -> None:
             report["params_hash"],
             report["status"],
             report["code_hash"],
+            report.get("source"),
             _dumps(report["params"]),
             _dumps(report["metrics"]),
             _dumps(report["yearly"]),
@@ -316,7 +318,7 @@ def record_failure(
 
 
 def _decode(row: tuple) -> dict:
-    keys = ("factor_name", "params_hash", "status", "code_hash", "params",
+    keys = ("factor_name", "params_hash", "status", "code_hash", "source", "params",
             "metrics", "yearly", "curve", "n_periods", "computed_at", "error")
     out = dict(zip(keys, row))
     for col in ("params", "metrics", "yearly", "curve"):
