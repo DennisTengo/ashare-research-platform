@@ -53,6 +53,25 @@ def test_quality_page_renders_without_running():
     assert not at.exception, at.exception
 
 
+def test_backtest_page_renders_without_running():
+    """策略回测页未点击运行时只展示表单与偏差警示。"""
+    at = _run("views/backtest.py")
+    assert not at.exception, at.exception
+
+
+def test_backtest_page_runs_and_shows_metrics():
+    """点「运行回测」后要出指标卡和绩效表。
+
+    这条会真的跑满 79 期，是整个页面的主路径：只测未运行状态，
+    等于把结果区（图表、绩效表、成交明细）全部漏掉。
+    """
+    at = _run("views/backtest.py")
+    at.button[0].click().run()
+    assert not at.exception, at.exception
+    assert len(at.metric) >= 5
+    assert len(at.dataframe) >= 2
+
+
 def test_stock_page_has_metrics():
     """首页应有指标卡，说明数据读出来了。"""
     at = _run("views/overview.py")

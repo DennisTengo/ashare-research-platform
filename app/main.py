@@ -61,6 +61,7 @@ PAGES = [
     st.Page("views/overview.py", title="首页", default=True),
     st.Page("views/stock.py", title="个股查询"),
     st.Page("views/factor_analysis.py", title="因子回测"),
+    st.Page("views/backtest.py", title="策略回测"),
     st.Page("views/data_quality.py", title="数据质检"),
 ]
 
