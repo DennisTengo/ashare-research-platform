@@ -1,4 +1,4 @@
-"""界面冒烟测试。
+﻿"""界面冒烟测试。
 
 目的不是测样式，而是保证每个页面在真实数据库上「能跑完不抛异常」。
 界面最常见的故障是某个空结果没处理导致整页崩掉，这类问题只靠肉眼点一遍
@@ -44,10 +44,16 @@ def test_stock_page_runs():
 
 
 def test_factor_library_page_renders():
-    """因子库列表页读取离线档案，正常应出现表格与状态说明。"""
+    """因子库列表页读取离线档案，正常应出现表格与状态说明。
+
+    列表用的是 AgGrid 组件，AppTest 只能看到它落成一个自定义组件块，
+    看不到里面几行（双击也模拟不了）。这里只能保证页面不报错、
+    且跑到列表分支（双击提示文字在表格之后才渲染）。
+    """
     at = _run("views/factor_library.py")
     assert not at.exception, at.exception
     assert len(at.dataframe) >= 1
+    assert any("双击一行进详情" in c.value for c in at.get("caption"))
 
 
 def test_factor_detail_page_renders():
@@ -69,6 +75,7 @@ def test_factor_detail_falls_back_to_list_for_unknown_name():
     at = _run("views/factor_library.py", {"factor": "no_such_factor"})
     assert not at.exception, at.exception
     assert len(at.dataframe) >= 1
+    assert any("双击一行进详情" in c.value for c in at.get("caption"))
     assert any("因子库" in t.value for t in at.title)
 
 

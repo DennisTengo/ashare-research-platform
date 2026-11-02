@@ -18,6 +18,7 @@ import pandas as pd
 
 from app.factor_detail import (
     SERIES_LABELS,
+    clicked_factor,
     flat_curve,
     group_table,
     ic_yearly_table,
@@ -247,3 +248,38 @@ def test_empty_record_does_not_crash():
     assert flat_curve(empty, "ic") == ([], [])
     assert settings_table(None).shape[0] > 0
     assert all(value is None for value in summary(empty).values())
+
+
+def _table_of_names() -> pd.DataFrame:
+    return pd.DataFrame([{"因子": "momentum_20d"}, {"因子": "roe"}])
+
+
+def test_double_click_reads_name_from_row_data():
+    event = {"streamlitRerunEventTriggerName": "cellDoubleClicked", "data": {"因子": "roe"}}
+    assert clicked_factor(event, _table_of_names()) == "roe"
+
+
+def test_double_click_falls_back_to_row_index():
+    """组件回的行数据可能是空的（版本差异），行号是第二道保障。"""
+    event = {"streamlitRerunEventTriggerName": "cellDoubleClicked", "rowIndex": 1}
+    assert clicked_factor(event, _table_of_names()) == "roe"
+
+
+def test_single_click_or_other_events_do_not_open():
+    """单击、排序、筛选都不能把人带到详情页。"""
+    assert clicked_factor({"streamlitRerunEventTriggerName": "cellClicked", "rowIndex": 0}, _table_of_names()) is None
+    assert clicked_factor({"streamlitRerunEventTriggerName": "sortChanged"}, _table_of_names()) is None
+    assert clicked_factor(None, _table_of_names()) is None
+    assert clicked_factor({}, _table_of_names()) is None
+
+
+def test_double_click_without_payload_returns_none():
+    """拿不到行号也不猜，宁可不跳转。"""
+    assert clicked_factor({"streamlitRerunEventTriggerName": "cellDoubleClicked"}, _table_of_names()) is None
+    assert (
+        clicked_factor(
+            {"streamlitRerunEventTriggerName": "cellDoubleClicked", "rowIndex": 99},
+            _table_of_names(),
+        )
+        is None
+    )

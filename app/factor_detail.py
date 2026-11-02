@@ -158,3 +158,29 @@ def group_table(record: dict) -> pd.DataFrame:
     rows = (record.get("metrics") or {}).get("portfolios") or []
     groups = [row for row in rows if str(row.get("label", "")).startswith("G")]
     return _table(groups, _PORTFOLIO_COLUMNS)
+
+
+DOUBLE_CLICK = "cellDoubleClicked"
+
+
+def clicked_factor(event: dict | None, table: pd.DataFrame) -> str | None:
+    """从表格组件回传的事件里取出被双击的因子名。
+
+    为什么不在 onClick 上做：单击选行很容易误触，尤其是想复制一个数字的时候。
+    双击是「我真的要看它」的明确意图。
+
+    事件里的行数据不一定完整（取决于组件版本），所以这条函数按
+    行数据 → 行号 → 已选行 三级回退；取不到就返回 None，让页面停在列表。
+    """
+    if not event or event.get("streamlitRerunEventTriggerName") != DOUBLE_CLICK:
+        return None
+
+    row = event.get("data") or {}
+    if isinstance(row, dict) and row.get("因子"):
+        return str(row["因子"])
+
+    index = event.get("rowIndex")
+    if isinstance(index, int) and 0 <= index < len(table):
+        return str(table.iloc[index]["因子"])
+
+    return None

@@ -12,6 +12,7 @@ dependencies = [
     "akshare>=1.14",
     "baostock>=0.8.9",
     "streamlit>=1.36",
+    "streamlit-aggrid>=1.2",
     "plotly>=5.22",
     "pydantic-settings>=2.3",
     "pyyaml>=6.0",

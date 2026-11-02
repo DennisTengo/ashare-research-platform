@@ -22,10 +22,12 @@ if str(ROOT) not in sys.path:
 
 import pandas as pd
 import streamlit as st
+from st_aggrid import AgGrid, GridOptionsBuilder
 
 from analysis.factor_report import STATUS_FAILED, STATUS_MISSING, STATUS_READY, STATUS_STALE
 from app.charts import line_option
 from app.factor_detail import (
+    clicked_factor,
     flat_curve,
     group_table,
     ic_yearly_table,
@@ -47,6 +49,25 @@ STATUS_HELP = {
 }
 
 YEARLY_SERIES = ("多空(净)", "多头(净)", "基准(等权)", "IC")
+
+# 列宽（像素）。不靠自动列宽：自动宽会把「说明」拉到半屏，
+# 把数字列挤成省略号；固定宽宁可横向滚动。
+_COLUMN_WIDTHS = {
+    "因子": 165,
+    "说明": 250,
+    "持有期": 80,
+    "分组": 70,
+    "状态": 90,
+    "多空年化%": 105,
+    "多空夏普": 95,
+    "多头年化%": 105,
+    "多头回撤%": 110,
+    "IC 均值": 90,
+    "IC 胜率%": 95,
+    "换手%": 85,
+    "期数": 70,
+    "计算时间": 100,
+}
 
 
 def _portfolios(record: dict) -> dict[str, dict]:
@@ -95,6 +116,32 @@ def _open(name: str) -> None:
     st.rerun()
 
 
+def _grid(table: pd.DataFrame):
+    """因子列表。双击一行进入详情。
+
+    为什么不用 st.dataframe：它的行选择带一个勾选框列，而且点击即选中，
+    复制数字时很容易误触。换成 AgGrid 后取消勾选框，只有双击才进详情。
+    代价是多一个前端依赖，以及表格样式与其它页的 st.dataframe 不完全一致。
+    """
+    builder = GridOptionsBuilder.from_dataframe(table)
+    builder.configure_default_column(sortable=True, filter=False, resizable=True)
+    builder.configure_selection(selection_mode="single", use_checkbox=False)
+    builder.configure_grid_options(suppressMovableColumns=True)
+    for column, width in _COLUMN_WIDTHS.items():
+        if column in table.columns:
+            builder.configure_column(column, width=width)
+    return AgGrid(
+        table,
+        gridOptions=builder.build(),
+        theme="streamlit",
+        height=None,  # 自动高度：5 行不该占满一屏，以后加因子也不必改这个数
+        update_on=["cellDoubleClicked"],
+        show_search=False,
+        show_download_button=False,
+        key="factor_grid",
+    )
+
+
 def _list_view(library: list[dict]) -> None:
     st.title("因子库")
 
@@ -106,27 +153,11 @@ def _list_view(library: list[dict]) -> None:
     )
 
     table = pd.DataFrame([_row(item) for item in library])
-    event = st.dataframe(
-        table,
-        use_container_width=True,
-        hide_index=True,
-        on_select="rerun",
-        selection_mode="single-row",
-        key="factor_table",
-        column_config={
-            "说明": st.column_config.TextColumn(width="medium"),
-            "状态": st.column_config.TextColumn(width="small"),
-            "多空年化%": st.column_config.NumberColumn(format="%.2f", help="最高分组减最低分组，扣双边成本"),
-            "多头年化%": st.column_config.NumberColumn(format="%.2f", help="只做多最高分组"),
-            "IC 均值": st.column_config.NumberColumn(format="%+.4f"),
-            "期数": st.column_config.NumberColumn(width="small"),
-        },
-    )
-    st.caption("点任意一行看详情。")
-
-    picked = getattr(getattr(event, "selection", None), "rows", None) or []
+    response = _grid(table)
+    st.caption("双击一行进详情；单击只选中，不会跳转。")
+    picked = clicked_factor(response.event_data, table)
     if picked:
-        _open(str(table.iloc[picked[0]]["因子"]))
+        _open(picked)
 
     pending = [item for item in library if item["status"] != STATUS_READY]
     if pending:
