@@ -14,14 +14,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 from streamlit.testing.v1 import AppTest
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _run(page: str) -> AppTest:
+def _run(page: str, params: dict | None = None) -> AppTest:
     at = AppTest.from_file(str(ROOT / "app" / page), default_timeout=180)
+    for key, value in (params or {}).items():
+        at.query_params[key] = value
     at.run()
     return at
 
@@ -47,6 +48,28 @@ def test_factor_library_page_renders():
     at = _run("views/factor_library.py")
     assert not at.exception, at.exception
     assert len(at.dataframe) >= 1
+
+
+def test_factor_detail_page_renders():
+    """带 ?factor= 时进详情页：指标卡、四张图、三组表格都要出来。
+
+    这条同时验证「详情页只读档案」这个约束能跑通——如果页面偷偷去重算，
+    会在这里碰到库锁或变慢。
+    """
+    at = _run("views/factor_library.py", {"factor": "volatility_20d"})
+    assert not at.exception, at.exception
+    assert len(at.metric) >= 6
+    assert len(at.dataframe) >= 3
+    assert any("volatility_20d" in t.value for t in at.title)
+    assert any("返回因子库" in b.label for b in at.button)
+
+
+def test_factor_detail_falls_back_to_list_for_unknown_name():
+    """URL 里写了一个不存在的因子，应该回到列表页，而不是空白页。"""
+    at = _run("views/factor_library.py", {"factor": "no_such_factor"})
+    assert not at.exception, at.exception
+    assert len(at.dataframe) >= 1
+    assert any("因子库" in t.value for t in at.title)
 
 
 def test_quality_page_renders_without_running():

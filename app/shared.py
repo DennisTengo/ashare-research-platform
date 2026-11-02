@@ -286,7 +286,7 @@ def factor_library() -> list[dict]:
     代码改了、参数改了，页面立刻显示「需重算」，不需要谁去同步一个状态列。
     """
     import factor.factors  # noqa: F401  触发自动发现
-    from analysis.factor_report import compute_params, load_reports, status_of
+    from analysis.factor_report import code_hash, compute_params, load_reports, status_of
     from factor.base import all_factors
 
     reports = load_reports(get_conn())
@@ -300,6 +300,7 @@ def factor_library() -> list[dict]:
                 "horizon": decl.horizon,
                 "groups": decl.groups,
                 "status": status_of(decl, record, compute_params(decl)),
+                "current_code_hash": code_hash(decl),
                 "report": record,
             }
         )
