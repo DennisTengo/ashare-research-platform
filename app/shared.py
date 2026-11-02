@@ -258,7 +258,7 @@ def factor_names() -> list[str]:
 
 
 def factor_registry() -> dict:
-    """已注册因子的元信息（名称、说明），用于界面展示。
+    """已注册因子的元信息（名称、说明、评估参数），用于界面展示。
 
     不缓存：函数体是纯内存构建，耗时可以忽略；而它内部的模块 import 会在
     cache_resource 未命中时与已持有的缓存锁相互作用，造成脚本线程阻塞。
@@ -267,6 +267,40 @@ def factor_registry() -> dict:
     from factor.base import all_factors
 
     return {
-        name: {"description": f.description, "lookback": f.lookback, "requires": f.requires}
+        name: {
+            "description": f.description,
+            "lookback": f.lookback,
+            "requires": f.requires,
+            "horizon": f.horizon,
+            "groups": f.groups,
+        }
         for name, f in all_factors().items()
     }
+
+
+@st.cache_data(ttl=60)
+def factor_library() -> list[dict]:
+    """因子库：注册表 × 最新快照档案 × 状态。
+
+    状态是现算的（拿当前参数与代码指纹去比库里那份），不是库里的字段。
+    代码改了、参数改了，页面立刻显示「需重算」，不需要谁去同步一个状态列。
+    """
+    import factor.factors  # noqa: F401  触发自动发现
+    from analysis.factor_report import compute_params, load_reports, status_of
+    from factor.base import all_factors
+
+    reports = load_reports(get_conn())
+    out = []
+    for name, decl in sorted(all_factors().items()):
+        record = reports.get(name)
+        out.append(
+            {
+                "name": name,
+                "description": decl.description,
+                "horizon": decl.horizon,
+                "groups": decl.groups,
+                "status": status_of(decl, record, compute_params(decl)),
+                "report": record,
+            }
+        )
+    return out

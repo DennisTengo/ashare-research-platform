@@ -4,7 +4,7 @@
 
 文件名不能与顶层包重名：Streamlit 会把页面所在目录加入 sys.path，
 若页面叫 factor.py，`import factor.factors` 会解析到页面文件而不是包，
-因此这里用 factor_analysis / data_quality。
+因此这里用 factor_library / data_quality。
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ st.markdown(
 PAGES = [
     st.Page("views/overview.py", title="首页", default=True),
     st.Page("views/stock.py", title="个股查询"),
-    st.Page("views/factor_analysis.py", title="因子回测"),
+    st.Page("views/factor_library.py", title="因子库"),
     st.Page("views/backtest.py", title="策略回测"),
     st.Page("views/data_quality.py", title="数据质检"),
 ]

@@ -42,10 +42,11 @@ def test_stock_page_runs():
     assert not at.exception, at.exception
 
 
-def test_factor_page_renders_without_running():
-    """未点「运行分析」时页面应正常展示表单，而不是空转或报错。"""
-    at = _run("views/factor_analysis.py")
+def test_factor_library_page_renders():
+    """因子库列表页读取离线档案，正常应出现表格与状态说明。"""
+    at = _run("views/factor_library.py")
     assert not at.exception, at.exception
+    assert len(at.dataframe) >= 1
 
 
 def test_quality_page_renders_without_running():
